@@ -1,59 +1,62 @@
-import { Dispatch } from "@reduxjs/toolkit";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useSelector } from "react-redux";
+import { useCallback, useContext, useEffect, useRef } from "react";
 import { VSC_THEME_COLOR_VARS } from "../components";
 import { IdeMessengerContext } from "../context/IdeMessenger";
-import { setVscMachineId } from "../redux/slices/configSlice";
-import {
-  addContextItemsAtIndex,
-  setConfig,
-  setConfigError,
-  setInactive,
-  setSelectedProfileId,
-  setTTSActive,
-  updateDocsSuggestions,
-  updateIndexingStatus,
-} from "../redux/slices/stateSlice";
-import { RootState } from "../redux/store";
+import { AppDispatch } from "../redux/store";
 
-import { debounce } from "lodash";
+import { streamResponseThunk } from "../redux/thunks/streamResponse";
 import { isJetBrains } from "../util";
-import { getLocalStorage, setLocalStorage } from "../util/localStorage";
-import useChatHandler from "./useChatHandler";
-import { useWebviewListener } from "./useWebviewListener";
+import { setLocalStorage } from "../util/localStorage";
 import { updateFileSymbolsFromContextItems } from "../util/symbols";
+import { useWebviewListener } from "./useWebviewListener";
+import { useAppSelector } from "../redux/hooks";
+import { setConfig, setConfigError } from "../redux/slices/configSlice";
+import { updateIndexingStatus } from "../redux/slices/indexingSlice";
+import { updateDocsSuggestions } from "../redux/slices/miscSlice";
+import {
+  setSelectedProfileId,
+  setInactive,
+  addContextItemsAtIndex,
+} from "../redux/slices/sessionSlice";
+import { setTTSActive } from "../redux/slices/uiSlice";
 
-function useSetup(dispatch: Dispatch) {
+function useSetup(dispatch: AppDispatch) {
   const ideMessenger = useContext(IdeMessengerContext);
-  const history = useSelector((store: RootState) => store.state.history);
+  const history = useAppSelector((store) => store.session.history);
+  const defaultModelTitle = useAppSelector(
+    (store) => store.config.defaultModelTitle,
+  );
+  const hasLoadedConfig = useRef(false);
+  const loadConfig = useCallback(
+    async (initial: boolean) => {
+      const result = await ideMessenger.request(
+        "config/getSerializedProfileInfo",
+        undefined,
+      );
+      if (result.status === "error") {
+        return;
+      }
+      const { config, profileId } = result.content;
+      if (initial && hasLoadedConfig.current) {
+        return;
+      }
+      hasLoadedConfig.current = true;
+      dispatch(setConfig(config));
+      dispatch(setSelectedProfileId(profileId));
 
-  const initialConfigLoad = useRef(false);
-  const loadConfig = useCallback(async () => {
-    const result = await ideMessenger.request(
-      "config/getSerializedProfileInfo",
-      undefined,
-    );
-    if (result.status === "error") {
-      return;
-    }
-    const { config, profileId } = result.content;
-    dispatch(setConfig(config));
-    dispatch(setSelectedProfileId(profileId));
-    initialConfigLoad.current = true;
-    setLocalStorage("disableIndexing", config.disableIndexing || false);
-
-    // Perform any actions needed with the config
-    if (config.ui?.fontSize) {
-      setLocalStorage("fontSize", config.ui.fontSize);
-      document.body.style.fontSize = `${config.ui.fontSize}px`;
-    }
-  }, [dispatch, ideMessenger, initialConfigLoad]);
+      // Perform any actions needed with the config
+      if (config.ui?.fontSize) {
+        setLocalStorage("fontSize", config.ui.fontSize);
+        document.body.style.fontSize = `${config.ui.fontSize}px`;
+      }
+    },
+    [dispatch, ideMessenger, hasLoadedConfig],
+  );
 
   // Load config from the IDE
   useEffect(() => {
-    loadConfig();
+    loadConfig(true);
     const interval = setInterval(() => {
-      if (initialConfigLoad.current) {
+      if (hasLoadedConfig.current) {
         // Docs init on config load
         ideMessenger.post("docs/getSuggestedDocs", undefined);
         ideMessenger.post("docs/initStatuses", undefined);
@@ -62,19 +65,24 @@ function useSetup(dispatch: Dispatch) {
         clearInterval(interval);
         return;
       }
-      loadConfig();
+      loadConfig(true);
     }, 2_000);
 
     return () => clearInterval(interval);
-  }, [initialConfigLoad, loadConfig, ideMessenger]);
+  }, [hasLoadedConfig, loadConfig, ideMessenger]);
 
-  useWebviewListener("configUpdate", async () => {
-    await loadConfig();
-  });
+  useWebviewListener(
+    "configUpdate",
+    async () => {
+      await loadConfig(false);
+    },
+    [loadConfig],
+  );
 
   // Load symbols for chat on any session change
-  const sessionId = useSelector((store: RootState) => store.state.sessionId);
+  const sessionId = useAppSelector((state) => state.session.id);
   const sessionIdRef = useRef("");
+
   useEffect(() => {
     if (sessionIdRef.current !== sessionId) {
       updateFileSymbolsFromContextItems(
@@ -102,8 +110,6 @@ function useSetup(dispatch: Dispatch) {
       (window as any).workspacePaths = msg.workspacePaths;
       (window as any).vscMachineId = msg.vscMachineId;
       (window as any).vscMediaUrl = msg.vscMediaUrl;
-      dispatch(setVscMachineId(msg.vscMachineId));
-      // dispatch(setVscMediaUrl(msg.vscMediaUrl));
     });
 
     // Save theme colors to local storage for immediate loading in JetBrains
@@ -122,12 +128,6 @@ function useSetup(dispatch: Dispatch) {
   useWebviewListener("docs/suggestions", async (data) => {
     dispatch(updateDocsSuggestions(data));
   });
-
-  const { streamResponse } = useChatHandler(dispatch, ideMessenger);
-
-  const defaultModelTitle = useSelector(
-    (store: RootState) => store.state.defaultModelTitle,
-  );
 
   // IDE event listeners
   useWebviewListener(
@@ -159,10 +159,11 @@ function useSetup(dispatch: Dispatch) {
 
   // TODO - remove?
   useWebviewListener("submitMessage", async (data) => {
-    streamResponse(
-      data.message,
-      { useCodebase: false, noContext: true },
-      ideMessenger,
+    dispatch(
+      streamResponseThunk({
+        editorState: data.message,
+        modifiers: { useCodebase: false, noContext: true },
+      }),
     );
   });
 

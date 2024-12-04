@@ -1,11 +1,11 @@
 import { SlashCommand } from "../../index.js";
-import { stripImages } from "../../llm/images.js";
+import { renderChatMessage } from "../../util/messageContent.js";
 
 const CommitMessageCommand: SlashCommand = {
   name: "commit",
   description: "Generate a commit message for current changes",
   run: async function* ({ ide, llm, params }) {
-    const includeUnstaged = params?.includeUnstaged ?? false;
+    const includeUnstaged = params?.includeUnstaged ?? true;
     const diff = await ide.getDiff(includeUnstaged);
 
     if (diff.length === 0) {
@@ -18,7 +18,7 @@ const CommitMessageCommand: SlashCommand = {
       [{ role: "user", content: prompt }],
       new AbortController().signal,
     )) {
-      yield stripImages(chunk.content);
+      yield renderChatMessage(chunk);
     }
   },
 };

@@ -2,7 +2,6 @@ import { AtSymbolIcon, PhotoIcon } from "@heroicons/react/24/outline";
 import { InputModifiers } from "core";
 import { modelSupportsImages } from "core/llm/autodetect";
 import { useRef } from "react";
-import { useSelector } from "react-redux";
 import styled from "styled-components";
 import {
   defaultBorderRadius,
@@ -11,7 +10,6 @@ import {
   vscInputBackground,
 } from "..";
 import { selectUseActiveFile } from "../../redux/selectors";
-import { defaultModelSelector } from "../../redux/selectors/modelSelectors";
 import {
   getAltKeyLabel,
   getFontSize,
@@ -20,8 +18,12 @@ import {
 } from "../../util";
 import { ToolTip } from "../gui/Tooltip";
 import ModelSelect from "../modelSelection/ModelSelect";
+import HoverItem from "./InputToolbar/HoverItem";
+import ToggleToolsButton from "./InputToolbar/ToggleToolsButton";
+import { useAppSelector } from "../../redux/hooks";
+import { selectDefaultModel } from "../../redux/slices/configSlice";
 
-const StyledDiv = styled.div<{ isHidden: boolean }>`
+const StyledDiv = styled.div<{ isHidden?: boolean }>`
   padding-top: 4px;
   justify-content: space-between;
   gap: 1px;
@@ -36,17 +38,6 @@ const StyledDiv = styled.div<{ isHidden: boolean }>`
   & > * {
     flex: 0 0 auto;
   }
-`;
-
-const HoverItem = styled.span<{ isActive?: boolean }>`
-  padding: 0 4px;
-  padding-top: 2px;
-  padding-bottom: 2px;
-  cursor: pointer;
-  transition:
-    color 200ms,
-    background-color 200ms,
-    box-shadow 200ms;
 `;
 
 const EnterButton = styled.button`
@@ -69,6 +60,7 @@ export interface ToolbarOptions {
   hideAddContext?: boolean;
   enterText?: string;
   hideSelectModel?: boolean;
+  hideTools?: boolean;
 }
 
 interface InputToolbarProps {
@@ -85,8 +77,8 @@ interface InputToolbarProps {
 
 function InputToolbar(props: InputToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const defaultModel = useSelector(defaultModelSelector);
-  const useActiveFile = useSelector(selectUseActiveFile);
+  const defaultModel = useAppSelector(selectDefaultModel);
+  const useActiveFile = useAppSelector(selectUseActiveFile);
 
   const supportsImages =
     defaultModel &&
@@ -117,8 +109,9 @@ function InputToolbar(props: InputToolbarProps) {
                     style={{ display: "none" }}
                     accept=".jpg,.jpeg,.png,.gif,.svg,.webp"
                     onChange={(e) => {
-                      for (const file of e.target.files) {
-                        props.onImageFileSelected(file);
+                      const files = e.target?.files ?? [];
+                      for (const file of files) {
+                        props.onImageFileSelected?.(file);
                       }
                     }}
                   />
@@ -144,6 +137,8 @@ function InputToolbar(props: InputToolbarProps) {
                 </ToolTip>
               </HoverItem>
             )}
+
+            {props.toolbarOptions?.hideTools || <ToggleToolsButton />}
           </div>
         </div>
 
@@ -152,14 +147,14 @@ function InputToolbar(props: InputToolbarProps) {
             <div className="hidden transition-colors duration-200 hover:underline sm:flex">
               {props.activeKey === "Alt" ? (
                 <HoverItem className="underline">
-                  {`${getAltKeyLabel()}⏎ 
+                  {`${getAltKeyLabel()}⏎
                   ${useActiveFile ? "No active file" : "Active file"}`}
                 </HoverItem>
               ) : (
                 <HoverItem
-                  className={props.activeKey === "Meta" && "underline"}
+                  className={props.activeKey === "Meta" ? "underline" : ""}
                   onClick={(e) =>
-                    props.onEnter({
+                    props.onEnter?.({
                       useCodebase: true,
                       noContext: !useActiveFile,
                     })

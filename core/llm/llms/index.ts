@@ -21,6 +21,7 @@ import Deepseek from "./Deepseek";
 import Fireworks from "./Fireworks";
 import Flowise from "./Flowise";
 import FreeTrial from "./FreeTrial";
+import FunctionNetwork from "./FunctionNetwork";
 import Gemini from "./Gemini";
 import Groq from "./Groq";
 import HuggingFaceInferenceAPI from "./HuggingFaceInferenceAPI";
@@ -48,11 +49,13 @@ import VertexAI from "./VertexAI";
 import Vllm from "./Vllm";
 import WatsonX from "./WatsonX";
 import xAI from "./xAI";
+import SiliconFlow from "./SiliconFlow";
 
 const LLMs = [
   Anthropic,
   Cohere,
   FreeTrial,
+  FunctionNetwork,
   Gemini,
   Llamafile,
   Moonshot,
@@ -90,6 +93,7 @@ const LLMs = [
   Nebius,
   VertexAI,
   xAI,
+  SiliconFlow,
 ];
 
 export async function llmFromDescription(
