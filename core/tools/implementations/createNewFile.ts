@@ -1,17 +1,34 @@
-import { getPathModuleForIde } from "../../util/pathModule";
+import { inferResolvedUriFromRelativePath } from "../../util/ideUtils";
 
 import { ToolImpl } from ".";
+import { getCleanUriPath, getUriPathBasename } from "../../util/uri";
 
 export const createNewFileImpl: ToolImpl = async (args, extras) => {
-  const pathSep = await extras.ide.pathSep();
-  let filepath = args.filepath;
-  if (!args.filepath.startsWith(pathSep)) {
-    const pathModule = await getPathModuleForIde(extras.ide);
-    const workspaceDirs = await extras.ide.getWorkspaceDirs();
-    const cwd = workspaceDirs[0];
-    filepath = pathModule.join(cwd, filepath);
+  const resolvedFileUri = await inferResolvedUriFromRelativePath(
+    args.filepath,
+    extras.ide,
+  );
+  if (resolvedFileUri) {
+    const exists = await extras.ide.fileExists(resolvedFileUri);
+    if (exists) {
+      throw new Error(
+        `File ${args.filepath} already exists. Use the edit tool to edit this file`,
+      );
+    }
+    await extras.ide.writeFile(resolvedFileUri, args.contents);
+    await extras.ide.openFile(resolvedFileUri);
+    return [
+      {
+        name: getUriPathBasename(resolvedFileUri),
+        description: getCleanUriPath(resolvedFileUri),
+        content: "File created successfuly",
+        uri: {
+          type: "file",
+          value: resolvedFileUri,
+        },
+      },
+    ];
+  } else {
+    throw new Error("Failed to resolve path");
   }
-  await extras.ide.writeFile(filepath, args.contents);
-  await extras.ide.openFile(filepath);
-  return [];
 };

@@ -1,16 +1,24 @@
+// @ts-ignore
 import DOMPurify from "dompurify";
+import { useMemo } from "react";
 import { themeIcons } from "seti-file-icons";
 
 export interface FileIconProps {
+  height: `${number}px`;
+  width: `${number}px`;
   filename: string;
-  height: string;
-  width: string;
 }
+
 export default function FileIcon({ filename, height, width }: FileIconProps) {
-  const filenameParts = filename.includes(" (")
-    ? filename.split(" ")
-    : [filename, ""];
-  filenameParts.pop();
+  const file = useMemo(() => {
+    if (filename.includes(" (")) {
+      const path = filename.split(" ");
+      path.pop();
+      return path.join(" ");
+    } else {
+      return filename;
+    }
+  }, [filename]);
 
   const getIcon = themeIcons({
     blue: "#268bd2",
@@ -27,7 +35,7 @@ export default function FileIcon({ filename, height, width }: FileIconProps) {
   });
 
   // Sanitize the SVG string before rendering it
-  const { svg, color } = getIcon(filenameParts.join(" "));
+  const { svg, color } = getIcon(file);
   const sanitizedSVG = DOMPurify.sanitize(svg);
 
   return (
@@ -38,7 +46,7 @@ export default function FileIcon({ filename, height, width }: FileIconProps) {
         height: height,
         fill: color,
         flexShrink: 0,
-        display: "block",
+        display: "flex",
       }}
     />
   );

@@ -1,316 +1,507 @@
-import fs from "node:fs";
-import path from "path";
-
 import {
-  extendConfig,
-  fillTemplateVariables,
+  AssistantUnrolled,
+  BLOCK_TYPES,
+  ConfigResult,
+  ConfigValidationError,
+  isAssistantUnrolledNonNullable,
+  MCPServer,
+  ModelRole,
+  PackageIdentifier,
+  RegistryClient,
+  Rule,
+  TEMPLATE_VAR_REGEX,
+  unrollAssistant,
   validateConfigYaml,
 } from "@continuedev/config-yaml";
-import { ConfigYaml } from "@continuedev/config-yaml/dist/schemas";
-import { ValidationLevel } from "@continuedev/config-yaml/dist/validation";
-import { fetchwithRequestOptions } from "@continuedev/fetch";
-import * as YAML from "yaml";
+import { dirname } from "node:path";
 
 import {
-  BrowserSerializedContinueConfig,
   ContinueConfig,
+  ExperimentalMCPOptions,
   IContextProvider,
   IDE,
+  IdeInfo,
   IdeSettings,
-  IdeType,
-  SlashCommand,
+  ILLMLogger,
+  RuleWithSource,
 } from "../..";
-import { AllRerankers } from "../../context/allRerankers";
-import { MCPManagerSingleton } from "../../context/mcp";
+import { slashFromCustomCommand } from "../../commands";
+import { MCPManagerSingleton } from "../../context/mcp/MCPManagerSingleton";
+import CodebaseContextProvider from "../../context/providers/CodebaseContextProvider";
+import DocsContextProvider from "../../context/providers/DocsContextProvider";
+import FileContextProvider from "../../context/providers/FileContextProvider";
 import { contextProviderClassFromName } from "../../context/providers/index";
-import { allEmbeddingsProviders } from "../../indexing/allEmbeddingsProviders";
+import { ControlPlaneClient } from "../../control-plane/client";
 import FreeTrial from "../../llm/llms/FreeTrial";
 import TransformersJsEmbeddingsProvider from "../../llm/llms/TransformersJsEmbeddingsProvider";
-import {
-  getConfigYamlPath,
-  getContinueDotEnv,
-  readAllGlobalPromptFiles,
-} from "../../util/paths";
-import { getSystemPromptDotFile } from "../getSystemPromptDotFile";
-import {
-  DEFAULT_PROMPTS_FOLDER,
-  getPromptFiles,
-  slashCommandFromPromptFile,
-} from "../promptFile.js";
-import { ConfigValidationError } from "../validation.js";
+import { slashCommandFromPromptFileV1 } from "../../promptFiles/v1/slashCommandFromPromptFile";
+import { getAllPromptFiles } from "../../promptFiles/v2/getPromptFiles";
+import { allTools } from "../../tools";
+import { GlobalContext } from "../../util/GlobalContext";
+import { modifyAnyConfigWithSharedConfig } from "../sharedConfig";
 
+import { getControlPlaneEnvSync } from "../../control-plane/env";
+import { logger } from "../../util/logger";
+import { getCleanUriPath } from "../../util/uri";
+import { getAllDotContinueYamlFiles } from "../loadLocalAssistants";
+import { LocalPlatformClient } from "./LocalPlatformClient";
 import { llmsFromModelConfig } from "./models";
 
-export interface ConfigResult<T> {
-  config: T | undefined;
-  errors: ConfigValidationError[] | undefined;
-  configLoadInterrupted: boolean;
-}
-
-function renderTemplateVars(configYaml: string): string {
-  const data: Record<string, string> = {};
-
-  // env.*
-  const envVars = getContinueDotEnv();
-  Object.entries(envVars).forEach(([key, value]) => {
-    data[`env.${key}`] = value;
-  });
-
-  // secrets.* not filled in
-
-  return fillTemplateVariables(configYaml, data);
-}
-
-function loadConfigYaml(
-  workspaceConfigs: string[],
-  ideSettings: IdeSettings,
-  ideType: IdeType,
-  rawYaml: string,
-): ConfigResult<ConfigYaml> {
-  const renderedYaml = renderTemplateVars(rawYaml);
-  let config = YAML.parse(renderedYaml) as ConfigYaml;
-  const errors = validateConfigYaml(config);
-
-  if (errors?.some((error) => error.level === ValidationLevel.Error)) {
+function convertYamlRuleToContinueRule(rule: Rule): RuleWithSource {
+  if (typeof rule === "string") {
     return {
-      errors: errors.map((error) => ({
-        message: error.message,
-        fatal: error.level === ValidationLevel.Error,
+      rule: rule,
+      source: "rules-block",
+    };
+  } else {
+    return {
+      source: "rules-block",
+      rule: rule.rule,
+      globs: rule.globs,
+      name: rule.name,
+    };
+  }
+}
+
+function convertYamlMcpToContinueMcp(
+  server: MCPServer,
+): ExperimentalMCPOptions {
+  return {
+    transport: {
+      type: "stdio",
+      command: server.command,
+      args: server.args ?? [],
+      env: server.env,
+    },
+    timeout: server.connectionTimeout,
+  };
+}
+
+async function loadConfigYaml(options: {
+  overrideConfigYaml: AssistantUnrolled | undefined;
+  controlPlaneClient: ControlPlaneClient;
+  orgScopeId: string | null;
+  ideSettings: IdeSettings;
+  ide: IDE;
+  packageIdentifier: PackageIdentifier;
+}): Promise<ConfigResult<AssistantUnrolled>> {
+  const {
+    overrideConfigYaml,
+    controlPlaneClient,
+    orgScopeId,
+    ideSettings,
+    ide,
+    packageIdentifier,
+  } = options;
+
+  // Add local .continue blocks
+  const allLocalBlocks: PackageIdentifier[] = [];
+  for (const blockType of BLOCK_TYPES) {
+    const localBlocks = await getAllDotContinueYamlFiles(
+      ide,
+      { includeGlobal: true, includeWorkspace: true },
+      blockType,
+    );
+    allLocalBlocks.push(
+      ...localBlocks.map((b) => ({
+        uriType: "file" as const,
+        filePath: b.path,
       })),
+    );
+  }
+
+  const rootPath =
+    packageIdentifier.uriType === "file"
+      ? dirname(getCleanUriPath(packageIdentifier.filePath))
+      : undefined;
+
+  logger.info(
+    `Loading config.yaml from ${JSON.stringify(packageIdentifier)} with root path ${rootPath}`,
+  );
+
+  let config =
+    overrideConfigYaml ??
+    // This is how we allow use of blocks locally
+    (await unrollAssistant(
+      packageIdentifier,
+      new RegistryClient({
+        accessToken: await controlPlaneClient.getAccessToken(),
+        apiBase: getControlPlaneEnvSync(ideSettings.continueTestEnvironment)
+          .CONTROL_PLANE_URL,
+        rootPath,
+      }),
+      {
+        currentUserSlug: "",
+        onPremProxyUrl: null,
+        orgScopeId,
+        platformClient: new LocalPlatformClient(
+          orgScopeId,
+          controlPlaneClient,
+          ide,
+        ),
+        renderSecrets: true,
+        injectBlocks: allLocalBlocks,
+      },
+    ));
+
+  const errors = isAssistantUnrolledNonNullable(config)
+    ? validateConfigYaml(config)
+    : [
+        {
+          fatal: true,
+          message: "Assistant includes blocks that don't exist",
+        },
+      ];
+
+  if (errors?.some((error) => error.fatal)) {
+    return {
+      errors,
       config: undefined,
       configLoadInterrupted: true,
     };
   }
 
-  for (const workspaceConfig of workspaceConfigs) {
-    const rendered = renderTemplateVars(workspaceConfig);
-    config = extendConfig(config, YAML.parse(rendered) as ConfigYaml);
-  }
-
   // Set defaults if undefined (this lets us keep config.json uncluttered for new users)
   return {
     config,
-    errors: errors.map((error) => ({
-      message: error.message,
-      fatal: error.level === ValidationLevel.Error,
-    })),
+    errors,
     configLoadInterrupted: false,
   };
 }
 
-async function slashCommandsFromV1PromptFiles(
-  ide: IDE,
-): Promise<SlashCommand[]> {
-  const slashCommands: SlashCommand[] = [];
-  const workspaceDirs = await ide.getWorkspaceDirs();
+async function configYamlToContinueConfig(options: {
+  config: AssistantUnrolled;
+  ide: IDE;
+  ideSettings: IdeSettings;
+  ideInfo: IdeInfo;
+  uniqueId: string;
+  llmLogger: ILLMLogger;
+  workOsAccessToken: string | undefined;
+  allowFreeTrial?: boolean;
+}): Promise<{ config: ContinueConfig; errors: ConfigValidationError[] }> {
+  let {
+    config,
+    ide,
+    ideSettings,
+    ideInfo,
+    uniqueId,
+    llmLogger,
+    allowFreeTrial,
+  } = options;
+  allowFreeTrial = allowFreeTrial ?? true;
 
-  // v1 prompt files
-  let promptFiles: { path: string; content: string }[] = [];
-  promptFiles = (
-    await Promise.all(
-      workspaceDirs.map((dir) =>
-        getPromptFiles(ide, path.join(dir, DEFAULT_PROMPTS_FOLDER)),
-      ),
-    )
-  )
-    .flat()
-    .filter(({ path }) => path.endsWith(".prompt"));
+  const localErrors: ConfigValidationError[] = [];
 
-  // Also read from ~/.continue/.prompts
-  promptFiles.push(...readAllGlobalPromptFiles());
+  const continueConfig: ContinueConfig = {
+    slashCommands: [],
+    tools: [...allTools],
+    mcpServerStatuses: [],
+    contextProviders: [],
+    modelsByRole: {
+      chat: [],
+      edit: [],
+      apply: [],
+      embed: [],
+      autocomplete: [],
+      rerank: [],
+      summarize: [],
+    },
+    selectedModelByRole: {
+      chat: null,
+      edit: null, // not currently used
+      apply: null,
+      embed: null,
+      autocomplete: null,
+      rerank: null,
+      summarize: null,
+    },
+    rules: [],
+  };
 
-  for (const file of promptFiles) {
-    const slashCommand = slashCommandFromPromptFile(file.path, file.content);
-    if (slashCommand) {
-      slashCommands.push(slashCommand);
+  // Right now, if there are any missing packages in the config, then we will just throw an error
+  if (!isAssistantUnrolledNonNullable(config)) {
+    return {
+      config: continueConfig,
+      errors: [
+        {
+          message: "Found missing blocks in config.yaml",
+          fatal: true,
+        },
+      ],
+    };
+  }
+
+  for (const rule of config.rules ?? []) {
+    continueConfig.rules.push(convertYamlRuleToContinueRule(rule));
+  }
+
+  continueConfig.data = config.data;
+  continueConfig.docs = config.docs?.map((doc) => ({
+    title: doc.name,
+    startUrl: doc.startUrl,
+    rootUrl: doc.rootUrl,
+    faviconUrl: doc.faviconUrl,
+  }));
+
+  config.mcpServers?.forEach((mcpServer) => {
+    const mcpArgVariables =
+      mcpServer.args?.filter((arg) => TEMPLATE_VAR_REGEX.test(arg)) ?? [];
+
+    if (mcpArgVariables.length === 0) {
+      return;
+    }
+
+    localErrors.push({
+      fatal: false,
+      message: `MCP server "${mcpServer.name}" has unsubstituted variables in args: ${mcpArgVariables.join(", ")}. Please refer to https://docs.continue.dev/hub/secrets/secret-types for managing hub secrets.`,
+    });
+  });
+
+  continueConfig.experimental = {
+    modelContextProtocolServers: config.mcpServers?.map(
+      convertYamlMcpToContinueMcp,
+    ),
+  };
+
+  // Prompt files -
+  try {
+    const promptFiles = await getAllPromptFiles(ide, undefined, true);
+
+    promptFiles.forEach((file) => {
+      try {
+        const slashCommand = slashCommandFromPromptFileV1(
+          file.path,
+          file.content,
+        );
+        if (slashCommand) {
+          continueConfig.slashCommands?.push(slashCommand);
+        }
+      } catch (e) {
+        localErrors.push({
+          fatal: false,
+          message: `Failed to convert prompt file ${file.path} to slash command: ${e instanceof Error ? e.message : e}`,
+        });
+      }
+    });
+  } catch (e) {
+    localErrors.push({
+      fatal: false,
+      message: `Error loading local prompt files: ${e instanceof Error ? e.message : e}`,
+    });
+  }
+
+  config.prompts?.forEach((prompt) => {
+    try {
+      const slashCommand = slashFromCustomCommand(prompt);
+      continueConfig.slashCommands?.push(slashCommand);
+    } catch (e) {
+      localErrors.push({
+        message: `Error loading prompt ${prompt.name}: ${e instanceof Error ? e.message : e}`,
+        fatal: false,
+      });
+    }
+  });
+
+  // Models
+  const defaultModelRoles: ModelRole[] = ["chat", "summarize", "apply", "edit"];
+  for (const model of config.models ?? []) {
+    model.roles = model.roles ?? defaultModelRoles; // Default to all 4 chat-esque roles if not specified
+    try {
+      const llms = await llmsFromModelConfig({
+        model,
+        ide,
+        uniqueId,
+        ideSettings,
+        llmLogger,
+        config: continueConfig,
+      });
+
+      if (model.roles?.includes("chat")) {
+        continueConfig.modelsByRole.chat.push(...llms);
+      }
+
+      if (model.roles?.includes("summarize")) {
+        continueConfig.modelsByRole.summarize.push(...llms);
+      }
+
+      if (model.roles?.includes("apply")) {
+        continueConfig.modelsByRole.apply.push(...llms);
+      }
+
+      if (model.roles?.includes("edit")) {
+        continueConfig.modelsByRole.edit.push(...llms);
+      }
+
+      if (model.roles?.includes("autocomplete")) {
+        continueConfig.modelsByRole.autocomplete.push(...llms);
+      }
+
+      if (model.roles?.includes("embed")) {
+        const { provider } = model;
+        if (provider === "transformers.js") {
+          if (ideInfo.ideType === "vscode") {
+            continueConfig.modelsByRole.embed.push(
+              new TransformersJsEmbeddingsProvider(),
+            );
+          } else {
+            localErrors.push({
+              fatal: false,
+              message: `Transformers.js embeddings provider not supported in this IDE.`,
+            });
+          }
+        } else {
+          continueConfig.modelsByRole.embed.push(...llms);
+        }
+      }
+
+      if (model.roles?.includes("rerank")) {
+        continueConfig.modelsByRole.rerank.push(...llms);
+      }
+    } catch (e) {
+      localErrors.push({
+        fatal: false,
+        message: `Failed to load model:\nName: ${model.name}\nModel: ${model.model}\nProvider: ${model.provider}\n${e instanceof Error ? e.message : e}`,
+      });
     }
   }
 
-  return slashCommands;
-}
-
-async function configYamlToContinueConfig(
-  config: ConfigYaml,
-  ide: IDE,
-  ideSettings: IdeSettings,
-  uniqueId: string,
-  writeLog: (log: string) => Promise<void>,
-  workOsAccessToken: string | undefined,
-  allowFreeTrial: boolean = true,
-): Promise<ContinueConfig> {
-  const continueConfig: ContinueConfig = {
-    slashCommands: await slashCommandsFromV1PromptFiles(ide),
-    models: [],
-    tabAutocompleteModels: [],
-    tools: [],
-    embeddingsProvider: new TransformersJsEmbeddingsProvider(),
-    experimental: {
-      modelContextProtocolServers: [],
-    },
-  };
-
-  // Models
-  for (const model of config.models ?? []) {
-    if (
-      ["chat", "summarize", "apply", "edit"].some((role: any) =>
-        model.roles?.includes(role),
-      )
-    ) {
-      // Main model array
-      const llms = await llmsFromModelConfig(
-        model,
-        ide,
-        uniqueId,
-        ideSettings,
-        writeLog,
-      );
-      continueConfig.models.push(...llms);
-    } else if (model.roles?.includes("autocomplete")) {
-      // Autocomplete models array
-      const llms = await llmsFromModelConfig(
-        model,
-        ide,
-        uniqueId,
-        ideSettings,
-        writeLog,
-      );
-      continueConfig.tabAutocompleteModels?.push(...llms);
-    }
+  // Add transformers js to the embed models in vs code if not already added
+  if (
+    ideInfo.ideType === "vscode" &&
+    !continueConfig.modelsByRole.embed.find(
+      (m) => m.providerName === "transformers.js",
+    )
+  ) {
+    continueConfig.modelsByRole.embed.push(
+      new TransformersJsEmbeddingsProvider(),
+    );
   }
 
   if (allowFreeTrial) {
     // Obtain auth token (iff free trial being used)
-    const freeTrialModels = continueConfig.models.filter(
+    const freeTrialModels = continueConfig.modelsByRole.chat.filter(
       (model) => model.providerName === "free-trial",
     );
     if (freeTrialModels.length > 0) {
-      const ghAuthToken = await ide.getGitHubAuthToken({});
-      for (const model of freeTrialModels) {
-        (model as FreeTrial).setupGhAuthToken(ghAuthToken);
+      try {
+        const ghAuthToken = await ide.getGitHubAuthToken({});
+        for (const model of freeTrialModels) {
+          (model as FreeTrial).setupGhAuthToken(ghAuthToken);
+        }
+      } catch (e) {
+        localErrors.push({
+          fatal: false,
+          message: `Failed to obtain GitHub auth token for free trial:\n${e instanceof Error ? e.message : e}`,
+        });
+        // Remove free trial models
+        continueConfig.modelsByRole.chat =
+          continueConfig.modelsByRole.chat.filter(
+            (model) => model.providerName !== "free-trial",
+          );
       }
     }
   } else {
     // Remove free trial models
-    continueConfig.models = continueConfig.models.filter(
+    continueConfig.modelsByRole.chat = continueConfig.modelsByRole.chat.filter(
       (model) => model.providerName !== "free-trial",
     );
   }
 
-  // TODO: Split into model roles.
+  // Context providers
+  const codebaseContextParams: IContextProvider[] =
+    (config.context || []).find((cp) => cp.provider === "codebase")?.params ||
+    {};
+  const DEFAULT_CONTEXT_PROVIDERS = [
+    new FileContextProvider({}),
+    new CodebaseContextProvider(codebaseContextParams),
+  ];
 
-  // Context
-  continueConfig.contextProviders = config.context
+  const DEFAULT_CONTEXT_PROVIDERS_TITLES = DEFAULT_CONTEXT_PROVIDERS.map(
+    ({ description: { title } }) => title,
+  );
+
+  continueConfig.contextProviders = (config.context
     ?.map((context) => {
-      const cls = contextProviderClassFromName(context.uses) as any;
+      const cls = contextProviderClassFromName(context.provider) as any;
       if (!cls) {
-        console.warn(`Unknown context provider ${context.uses}`);
+        if (!DEFAULT_CONTEXT_PROVIDERS_TITLES.includes(context.provider)) {
+          localErrors.push({
+            fatal: false,
+            message: `Unknown context provider ${context.provider}`,
+          });
+        }
         return undefined;
       }
-      const instance: IContextProvider = new cls(context.with ?? {});
+      const instance: IContextProvider = new cls({
+        name: context.name,
+        ...context.params,
+      });
       return instance;
     })
-    .filter((p) => !!p) as IContextProvider[];
+    .filter((p) => !!p) ?? []) as IContextProvider[];
+  continueConfig.contextProviders.push(...DEFAULT_CONTEXT_PROVIDERS);
 
-  // Embeddings Provider
-  const embedConfig = config.models?.find((model) =>
-    model.roles?.includes("embed"),
-  );
-  if (embedConfig) {
-    const { provider, ...options } = embedConfig;
-    const embeddingsProviderClass = allEmbeddingsProviders[provider];
-    if (embeddingsProviderClass) {
-      if (
-        embeddingsProviderClass.name === "_TransformersJsEmbeddingsProvider"
-      ) {
-        continueConfig.embeddingsProvider = new embeddingsProviderClass();
-      } else {
-        continueConfig.embeddingsProvider = new embeddingsProviderClass(
-          options,
-          (url: string | URL, init: any) =>
-            fetchwithRequestOptions(url, init, {
-              ...options.requestOptions,
-            }),
-        );
-      }
-    }
+  if (
+    continueConfig.docs?.length &&
+    !continueConfig.contextProviders?.some(
+      (cp) => cp.description.title === "docs",
+    )
+  ) {
+    continueConfig.contextProviders.push(new DocsContextProvider({}));
   }
 
-  // Reranker
-  const rerankConfig = config.models?.find((model) =>
-    model.roles?.includes("rerank"),
-  );
-  if (rerankConfig) {
-    const { provider, ...options } = rerankConfig;
-    const rerankerClass = AllRerankers[provider];
-
-    if (rerankerClass) {
-      continueConfig.reranker = new rerankerClass(
-        options,
-        (url: string | URL, init: any) =>
-          fetchwithRequestOptions(url, init, {
-            ...options.requestOptions,
-          }),
-      );
-    }
-  }
-
-  // Apply MCP if specified
+  // Trigger MCP server refreshes (Config is reloaded again once connected!)
   const mcpManager = MCPManagerSingleton.getInstance();
-  config.mcpServers?.forEach(async (server) => {
-    const mcpId = server.name;
-    const mcpConnection = mcpManager.createConnection(mcpId, {
+  mcpManager.setConnections(
+    (config.mcpServers ?? []).map((server) => ({
+      id: server.name,
+      name: server.name,
       transport: {
         type: "stdio",
         args: [],
         ...server,
       },
-    });
-    if (!mcpConnection) {
-      return;
-    }
+      timeout: server.connectionTimeout,
+    })),
+    false,
+  );
 
-    const abortController = new AbortController();
-    const mcpConnectionTimeout = setTimeout(
-      () => abortController.abort(),
-      2000,
-    );
-
-    try {
-      await mcpConnection.modifyConfig(
-        continueConfig,
-        mcpId,
-        abortController.signal,
-      );
-    } catch (e: any) {
-      if (e.name !== "AbortError") {
-        throw e;
-      }
-    }
-    clearTimeout(mcpConnectionTimeout);
-  });
-
-  return continueConfig;
+  return { config: continueConfig, errors: localErrors };
 }
 
-export async function loadContinueConfigFromYaml(
-  ide: IDE,
-  workspaceConfigs: string[],
-  ideSettings: IdeSettings,
-  ideType: IdeType,
-  uniqueId: string,
-  writeLog: (log: string) => Promise<void>,
-  workOsAccessToken: string | undefined,
-  overrideConfigYaml: string | undefined,
-): Promise<ConfigResult<ContinueConfig>> {
-  const configYamlPath = getConfigYamlPath(ideType);
-  const rawYaml = fs.readFileSync(configYamlPath, "utf-8");
-
-  const configYamlResult = await loadConfigYaml(
-    workspaceConfigs,
+export async function loadContinueConfigFromYaml(options: {
+  ide: IDE;
+  ideSettings: IdeSettings;
+  ideInfo: IdeInfo;
+  uniqueId: string;
+  llmLogger: ILLMLogger;
+  workOsAccessToken: string | undefined;
+  overrideConfigYaml: AssistantUnrolled | undefined;
+  controlPlaneClient: ControlPlaneClient;
+  orgScopeId: string | null;
+  packageIdentifier: PackageIdentifier;
+}): Promise<ConfigResult<ContinueConfig>> {
+  const {
+    ide,
     ideSettings,
-    ideType,
-    overrideConfigYaml ?? rawYaml,
-  );
+    ideInfo,
+    uniqueId,
+    llmLogger,
+    workOsAccessToken,
+    overrideConfigYaml,
+    controlPlaneClient,
+    orgScopeId,
+    packageIdentifier,
+  } = options;
+
+  const configYamlResult = await loadConfigYaml({
+    overrideConfigYaml,
+    controlPlaneClient,
+    orgScopeId,
+    ideSettings,
+    ide,
+    packageIdentifier,
+  });
 
   if (!configYamlResult.config || configYamlResult.configLoadInterrupted) {
     return {
@@ -320,29 +511,32 @@ export async function loadContinueConfigFromYaml(
     };
   }
 
-  const continueConfig = await configYamlToContinueConfig(
-    configYamlResult.config,
-    ide,
-    ideSettings,
-    uniqueId,
-    writeLog,
-    workOsAccessToken,
-  );
+  const { config: continueConfig, errors: localErrors } =
+    await configYamlToContinueConfig({
+      config: configYamlResult.config,
+      ide,
+      ideSettings,
+      ideInfo,
+      uniqueId,
+      llmLogger,
+      workOsAccessToken,
+    });
 
-  const systemPromptDotFile = await getSystemPromptDotFile(ide);
-  if (systemPromptDotFile) {
-    if (continueConfig.systemMessage) {
-      continueConfig.systemMessage += "\n\n" + systemPromptDotFile;
-    } else {
-      continueConfig.systemMessage = systemPromptDotFile;
-    }
+  // Apply shared config
+  // TODO: override several of these values with user/org shared config
+  // Don't try catch this - has security implications and failure should be fatal
+  const sharedConfig = new GlobalContext().getSharedConfig();
+  const withShared = modifyAnyConfigWithSharedConfig(
+    continueConfig,
+    sharedConfig,
+  );
+  if (withShared.allowAnonymousTelemetry === undefined) {
+    withShared.allowAnonymousTelemetry = true;
   }
 
   return {
-    config: continueConfig,
-    errors: configYamlResult.errors,
+    config: withShared,
+    errors: [...(configYamlResult.errors ?? []), ...localErrors],
     configLoadInterrupted: false,
   };
 }
-
-export { type BrowserSerializedContinueConfig };

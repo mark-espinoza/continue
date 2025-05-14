@@ -2,6 +2,7 @@ package com.github.continuedev.continueintellijextension.auth
 
 import com.github.continuedev.continueintellijextension.services.ContinueExtensionSettings
 import com.github.continuedev.continueintellijextension.services.ContinuePluginService
+import com.github.continuedev.continueintellijextension.utils.Desktop
 import com.google.gson.Gson
 import com.intellij.credentialStore.Credentials
 import com.intellij.ide.passwordSafe.PasswordSafe
@@ -12,7 +13,6 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.remoteServer.util.CloudConfigurationUtil.createCredentialAttributes
 import kotlinx.coroutines.CoroutineScope
-import java.awt.Desktop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,24 +33,31 @@ class ContinueAuthService {
         private const val REFRESH_TOKEN_KEY = "ContinueRefreshToken"
         private const val ACCOUNT_ID_KEY = "ContinueAccountId"
         private const val ACCOUNT_LABEL_KEY = "ContinueAccountLabel"
-        private const val CONTROL_PLANE_URL = "https://control-plane-api-service-i3dqylpbqa-uc.a.run.app"
-//        private const val CONTROL_PLANE_URL = "http://localhost:3001"
+    }
+
+    private fun getControlPlaneUrl(): String {
+        val env = service<ContinueExtensionSettings>().continueState.continueTestEnvironment;
+        when (env) {
+            "none" -> return "https://control-plane-api-service-i3dqylpbqa-uc.a.run.app"
+            "local" -> return "http://localhost:3001"
+            "production" -> return "https://api.continue.dev"
+            "test" -> return "https://api-test.continue.dev"
+        }
+
+        return "https://control-plane-api-service-i3dqylpbqa-uc.a.run.app"
     }
 
     init {
-        val settings = service<ContinueExtensionSettings>()
-        if (settings.continueState.enableContinueTeamsBeta) {
-            setupRefreshTokenInterval()
-        }
+        setupRefreshTokenInterval()
     }
 
-    fun startAuthFlow(project: Project) {
+    fun startAuthFlow(project: Project, useOnboarding: Boolean) {
         // Open login page
-        openSignInPage(project)
+        val url = openSignInPage(project, useOnboarding)
 
         // Open a dialog where the user should paste their sign-in token
         ApplicationManager.getApplication().invokeLater {
-            val dialog = ContinueAuthDialog() { token ->
+            val dialog = ContinueAuthDialog(useOnboarding, url) { token ->
                 // Store the token
                 updateRefreshToken(token)
             }
@@ -64,6 +71,9 @@ class ContinueAuthService {
         setRefreshToken("")
         setAccountId("")
         setAccountLabel("")
+
+        ApplicationManager.getApplication().messageBus.syncPublisher(AuthListener.TOPIC)
+            .handleUpdatedSessionInfo(null)
     }
 
     private fun updateRefreshToken(token: String) {
@@ -78,10 +88,12 @@ class ContinueAuthService {
                 val lastName = user?.get("lastName") as? String
                 val label = "$firstName $lastName"
                 val id = user?.get("id") as? String
+                val email = user?.get("email") as? String
 
                 // Persist the session info
                 setRefreshToken(refreshToken!!)
-                val sessionInfo = ControlPlaneSessionInfo(accessToken!!, ControlPlaneSessionInfo.Account(id!!, label))
+                val sessionInfo =
+                    ControlPlaneSessionInfo(accessToken!!, ControlPlaneSessionInfo.Account(email!!, label))
                 setControlPlaneSessionInfo(sessionInfo)
 
                 // Notify listeners
@@ -111,7 +123,7 @@ class ContinueAuthService {
 
     private suspend fun refreshToken(refreshToken: String) = withContext(Dispatchers.IO) {
         val client = OkHttpClient()
-        val url = URL(CONTROL_PLANE_URL).toURI().resolve("/auth/refresh").toURL()
+        val url = URL(getControlPlaneUrl()).toURI().resolve("/auth/refresh").toURL()
         val jsonBody = mapOf("refreshToken" to refreshToken)
         val jsonString = Gson().toJson(jsonBody)
         val requestBody = jsonString.toRequestBody("application/json".toMediaType())
@@ -132,15 +144,31 @@ class ContinueAuthService {
     }
 
 
-    private fun openSignInPage(project: Project) {
+    private fun openSignInPage(project: Project, useOnboarding: Boolean): String? {
+        var authUrl: String? = null
         val coreMessenger = project.service<ContinuePluginService>().coreMessenger
-        coreMessenger?.request("auth/getAuthUrl", null, null) { response ->
-            val authUrl = (response as? Map<*, *>)?.get("url") as? String
-            if (authUrl != null) {
-                // Open the auth URL in the browser
-                Desktop.getDesktop().browse(java.net.URI(authUrl))
-            }
+
+        // Use a blocking approach to get the URL
+        val latch = java.util.concurrent.CountDownLatch(1)
+
+        coreMessenger?.request(
+            "auth/getAuthUrl", mapOf(
+                "useOnboarding" to useOnboarding
+            ), null
+        ) { response ->
+            authUrl = ((response as? Map<*, *>)?.get("content") as? Map<*, *>)?.get("url") as? String
+            latch.countDown()
         }
+
+        // Wait for the response with a reasonable timeout
+        latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+
+        // Still open the URL in the browser (keeping existing behavior)
+        if (authUrl != null) {
+            Desktop.browse(java.net.URI(authUrl))
+        }
+
+        return authUrl
     }
 
     private fun retrieveSecret(key: String): String? {
@@ -208,7 +236,7 @@ class ContinueAuthService {
         val accountId = getAccountId()
         val accountLabel = getAccountLabel()
 
-        return if (accessToken != null && accountId != null && accountLabel != null) {
+        return if ((accessToken != null && accessToken != "") && accountId != null && accountLabel != null) {
             ControlPlaneSessionInfo(
                 accessToken = accessToken,
                 account = ControlPlaneSessionInfo.Account(

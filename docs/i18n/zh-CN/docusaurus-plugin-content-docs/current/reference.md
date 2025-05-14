@@ -83,16 +83,15 @@ Specifies options for tab autocompletion behavior.
 **Properties:**
 
 - `disable`: If `true`, disables tab autocomplete (default: `false`).
-- `useFileSuffix`: If `true`, includes file suffix in the prompt.
-- `maxPromptTokens`: Maximum number of tokens for the prompt.
-- `debounceDelay`: Delay (in ms) before triggering autocomplete.
-- `maxSuffixPercentage`: Maximum percentage of prompt for suffix.
-- `prefixPercentage`: Percentage of input for prefix.
+- `maxPromptTokens`: Maximum number of tokens for the prompt (default: `1024`).
+- `debounceDelay`: Delay (in ms) before triggering autocomplete (default: `350`).
+- `maxSuffixPercentage`: Maximum percentage of prompt for suffix (default: `0.2`).
+- `prefixPercentage`: Percentage of input for prefix (default: `0.3`).
 - `template`: Template string for autocomplete, using Mustache templating.
-- `multilineCompletions`: Controls multiline completions (`"always"`, `"never"`, or `"auto"`).
-- `useCache`: If `true`, caches completions.
-- `onlyMyCode`: If `true`, only includes code within the repository.
-- `disableInFiles`: Array of glob patterns for files where autocomplete is disabled.
+- `multilineCompletions`: Controls multiline completions (`"always"`, `"never"`, or `"auto"`) (default: `auto`).
+- `useCache`: If `true`, caches completions (default: `true`).
+- `onlyMyCode`: If `true`, only includes code within the repository (default: `true`).
+- `disableInFiles`: Array of glob patterns for files where autocomplete is disabled (default: `[]`).
 
 Example
 
@@ -112,13 +111,13 @@ Embeddings model settings - the model used for @Codebase and @docs.
 
 **Properties:**
 
-- `provider` (**required**): Specifies the embeddings provider, with options including `transformers.js`, `ollama`, `openai`, `cohere`, `free-trial`, `gemini`, etc
+- `provider` (**required**): Specifies the embeddings provider, with options including `transformers.js`, `ollama`, `openai`, `cohere`, `gemini`, etc
 - `model`: Model name for embeddings.
 - `apiKey`: API key for the provider.
 - `apiBase`: Base URL for API requests.
 - `requestOptions`: Additional HTTP request settings specific to the embeddings provider.
-- `maxChunkSize`: Maximum tokens per document chunk. Minimum is 128 tokens.
-- `maxBatchSize`: Maximum number of chunks per request. Minimum is 1 chunk.
+- `maxEmbeddingChunkSize`: Maximum tokens per document chunk. Minimum is 128 tokens.
+- `maxEmbeddingBatchSize`: Maximum number of chunks per request. Minimum is 1 chunk.
 
 (AWS ONLY)
 
@@ -133,8 +132,8 @@ Example:
     "provider": "openai",
     "model": "text-embedding-ada-002",
     "apiKey": "<API_KEY>",
-    "maxChunkSize": 256,
-    "maxBatchSize": 5
+    "maxEmbeddingChunkSize": 256,
+    "maxEmbeddingBatchSize": 5
   }
 }
 ```
@@ -150,12 +149,13 @@ Parameters that control the behavior of text generation and completion settings.
 - `topP`: The cumulative probability for nucleus sampling. Lower values limit responses to tokens within the top probability mass.
 - `topK`: The maximum number of tokens considered at each step. Limits the generated text to tokens within this probability.
 - `presencePenalty`: Discourages the model from generating tokens that have already appeared in the output.
-- `frequencePenalty`: Penalizes tokens based on their frequency in the text, reducing repetition.
+- `frequencyPenalty`: Penalizes tokens based on their frequency in the text, reducing repetition.
 - `mirostat`: Enables Mirostat sampling, which controls the perplexity during text generation. Supported by Ollama, LM Studio, and llama.cpp providers (default: `0`, where `0` = disabled, `1` = Mirostat, and `2` = Mirostat 2.0).
 - `stop`: An array of stop tokens that, when encountered, will terminate the completion. Allows specifying multiple end conditions.
 - `maxTokens`: The maximum number of tokens to generate in a completion (default: `2048`).
 - `numThreads`: The number of threads used during the generation process. Available only for Ollama as `num_thread`.
 - `keepAlive`: For Ollama, this parameter sets the number of seconds to keep the model loaded after the last request, unloading it from memory if inactive (default: `1800` seconds, or 30 minutes).
+- `numGpu`: For Ollama, this parameter overrides the number of gpu layers that will be used to load the model into VRAM.
 - `useMmap`: For Ollama, this parameter allows the model to be mapped into memory. If disabled can enhance response time on low end devices but will slow down the stream.
 
 Example
@@ -206,7 +206,7 @@ Configuration for the reranker model used in response ranking.
 
 **Properties:**
 
-- `name` (**required**): Reranker name, e.g., `cohere`, `voyage`, `llm`, `free-trial`, `huggingface-tei`
+- `name` (**required**): Reranker name, e.g., `cohere`, `voyage`, `llm`, `huggingface-tei`
 - `params`:
   - `model`: Model name
   - `apiKey`: Api key
@@ -233,8 +233,8 @@ List of documentation sites to index.
 
 - `title` (**required**): Title of the documentation site, displayed in dropdowns, etc.
 - `startUrl` (**required**): Start page for crawling - usually root or intro page for docs
-- `rootUrl`: Crawler will only index docs within this domain - pages that contain this URL
-- `maxDepth`: Maximum depth for crawling. Default `3`
+<!-- - `rootUrl`: Crawler will only index docs within this domain - pages that contain this URL -->
+- `maxDepth`: Maximum link depth for crawling. Default `4`
 - `favicon`: URL for site favicon (default is `/favicon.ico` from `startUrl`).
 
 Example
@@ -244,7 +244,6 @@ Example
     {
     "title": "Continue",
     "startUrl": "https://docs.continue.dev/intro",
-    "rootUrl": "https://docs.continue.dev",
     "faviconUrl": "https://docs.continue.dev/favicon.ico",
   }
 ]

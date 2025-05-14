@@ -2,6 +2,7 @@ package com.github.continuedev.continueintellijextension.services
 
 import com.github.continuedev.continueintellijextension.constants.getConfigJsPath
 import com.github.continuedev.continueintellijextension.constants.getConfigJsonPath
+import com.intellij.execution.target.value.constant
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
@@ -29,7 +30,6 @@ class ContinueSettingsComponent : DumbAware {
     val remoteConfigSyncPeriod: JTextField = JTextField()
     val userToken: JTextField = JTextField()
     val enableTabAutocomplete: JCheckBox = JCheckBox("Enable Tab Autocomplete")
-    val enableContinueTeamsBeta: JCheckBox = JCheckBox("Enable Continue for Teams Beta")
     val enableOSR: JCheckBox = JCheckBox("Enable Off-Screen Rendering")
     val displayEditorTooltip: JCheckBox = JCheckBox("Display Editor Tooltip")
     val showIDECompletionSideBySide: JCheckBox = JCheckBox("Show IDE completions side-by-side")
@@ -57,8 +57,6 @@ class ContinueSettingsComponent : DumbAware {
         panel.add(userToken, constraints)
         constraints.gridy++
         panel.add(enableTabAutocomplete, constraints)
-        constraints.gridy++
-        panel.add(enableContinueTeamsBeta, constraints)
         constraints.gridy++
         panel.add(enableOSR, constraints)
         constraints.gridy++
@@ -94,10 +92,10 @@ open class ContinueExtensionSettings : PersistentStateComponent<ContinueExtensio
         var userToken: String? = null
         var enableTabAutocomplete: Boolean = true
         var ghAuthToken: String? = null
-        var enableContinueTeamsBeta: Boolean = false
         var enableOSR: Boolean = shouldRenderOffScreen()
         var displayEditorTooltip: Boolean = true
         var showIDECompletionSideBySide: Boolean = false
+        var continueTestEnvironment: String = "production"
     }
 
     var continueState: ContinueState = ContinueState()
@@ -208,7 +206,6 @@ class ContinueExtensionConfigurable : Configurable {
                     mySettingsComponent?.remoteConfigSyncPeriod?.text?.toInt() != settings.continueState.remoteConfigSyncPeriod ||
                     mySettingsComponent?.userToken?.text != settings.continueState.userToken ||
                     mySettingsComponent?.enableTabAutocomplete?.isSelected != settings.continueState.enableTabAutocomplete ||
-                    mySettingsComponent?.enableContinueTeamsBeta?.isSelected != settings.continueState.enableContinueTeamsBeta ||
                     mySettingsComponent?.enableOSR?.isSelected != settings.continueState.enableOSR ||
                     mySettingsComponent?.displayEditorTooltip?.isSelected != settings.continueState.displayEditorTooltip ||
                     mySettingsComponent?.showIDECompletionSideBySide?.isSelected != settings.continueState.showIDECompletionSideBySide
@@ -221,8 +218,6 @@ class ContinueExtensionConfigurable : Configurable {
         settings.continueState.remoteConfigSyncPeriod = mySettingsComponent?.remoteConfigSyncPeriod?.text?.toInt() ?: 60
         settings.continueState.userToken = mySettingsComponent?.userToken?.text
         settings.continueState.enableTabAutocomplete = mySettingsComponent?.enableTabAutocomplete?.isSelected ?: false
-        settings.continueState.enableContinueTeamsBeta =
-            mySettingsComponent?.enableContinueTeamsBeta?.isSelected ?: false
         settings.continueState.enableOSR = mySettingsComponent?.enableOSR?.isSelected ?: true
         settings.continueState.displayEditorTooltip = mySettingsComponent?.displayEditorTooltip?.isSelected ?: true
         settings.continueState.showIDECompletionSideBySide =
@@ -239,7 +234,6 @@ class ContinueExtensionConfigurable : Configurable {
         mySettingsComponent?.remoteConfigSyncPeriod?.text = settings.continueState.remoteConfigSyncPeriod.toString()
         mySettingsComponent?.userToken?.text = settings.continueState.userToken
         mySettingsComponent?.enableTabAutocomplete?.isSelected = settings.continueState.enableTabAutocomplete
-        mySettingsComponent?.enableContinueTeamsBeta?.isSelected = settings.continueState.enableContinueTeamsBeta
         mySettingsComponent?.enableOSR?.isSelected = settings.continueState.enableOSR
         mySettingsComponent?.displayEditorTooltip?.isSelected = settings.continueState.displayEditorTooltip
         mySettingsComponent?.showIDECompletionSideBySide?.isSelected =

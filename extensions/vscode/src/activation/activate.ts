@@ -2,12 +2,13 @@ import { getContinueRcPath, getTsConfigPath } from "core/util/paths";
 import { Telemetry } from "core/util/posthog";
 import * as vscode from "vscode";
 
+import * as path from "path";
 import { VsCodeExtension } from "../extension/VsCodeExtension";
 import registerQuickFixProvider from "../lang-server/codeActions";
 import { getExtensionVersion } from "../util/util";
 
 import { VsCodeContinueApi } from "./api";
-import { setupInlineTips } from "./inlineTips";
+import setupInlineTips from "./InlineTipManager";
 
 export async function activateExtension(context: vscode.ExtensionContext) {
   // Add necessary files
@@ -30,6 +31,22 @@ export async function activateExtension(context: vscode.ExtensionContext) {
       },
       true,
     );
+  }
+
+  // Only set the YAML schema configuration if it hasn't been set before
+  if (!context.globalState.get("yamlSchemaConfigured")) {
+    vscode.workspace.getConfiguration("yaml").update(
+      "schemas",
+      {
+        [path.join(
+          context.extension.extensionUri.fsPath,
+          "config-yaml-schema.json",
+        )]: [".continue/**/*.yaml"],
+      },
+      vscode.ConfigurationTarget.Global,
+    );
+    // Mark that we've configured the YAML schema
+    context.globalState.update("yamlSchemaConfigured", true);
   }
 
   const api = new VsCodeContinueApi(vscodeExtension);

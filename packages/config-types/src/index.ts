@@ -13,6 +13,7 @@ export const completionOptionsSchema = z.object({
   numThreads: z.number().optional(),
   useMmap: z.boolean().optional(),
   keepAlive: z.number().optional(),
+  numGpu: z.number().optional(),
   raw: z.boolean().optional(),
   stream: z.boolean().optional(),
 });
@@ -55,9 +56,11 @@ export const modelDescriptionSchema = z.object({
     "sagemaker",
     "cloudflare",
     "azure",
+    "ovhcloud",
     "continue-proxy",
     "nebius",
-    "scaleway"
+    "scaleway",
+    "watsonx"
   ]),
   model: z.string(),
   apiKey: z.string().optional(),
@@ -108,9 +111,11 @@ export const embeddingsProviderSchema = z.object({
     "cohere",
     "free-trial",
     "gemini",
+    "ovhcloud",
     "continue-proxy",
     "nebius",
     "scaleway",
+    "watsonx"
   ]),
   apiBase: z.string().optional(),
   apiKey: z.string().optional(),
@@ -133,7 +138,6 @@ export type UiOptions = z.infer<typeof uiOptionsSchema>;
 
 export const tabAutocompleteOptionsSchema = z.object({
   disable: z.boolean(),
-  useFileSuffix: z.boolean(),
   maxPromptTokens: z.number(),
   debounceDelay: z.number(),
   maxSuffixPercentage: z.number(),
@@ -174,7 +178,7 @@ export const contextProviderSchema = z.object({
 export type ContextProvider = z.infer<typeof contextProviderSchema>;
 
 export const rerankerSchema = z.object({
-  name: z.enum(["cohere", "voyage", "llm", "continue-proxy"]),
+  name: z.enum(["cohere", "voyage", "watsonx", "llm", "continue-proxy"]),
   params: z.record(z.any()).optional(),
 });
 export type Reranker = z.infer<typeof rerankerSchema>;
@@ -202,10 +206,11 @@ export type DevData = z.infer<typeof devDataSchema>;
 
 export const siteIndexingConfigSchema = z.object({
   startUrl: z.string(),
-  rootUrl: z.string(),
+  // rootUrl: z.string(),
   title: z.string(),
   maxDepth: z.string().optional(),
   faviconUrl: z.string().optional(),
+  useLocalCrawling: z.boolean().optional(),
 });
 
 export const controlPlaneConfigSchema = z.object({

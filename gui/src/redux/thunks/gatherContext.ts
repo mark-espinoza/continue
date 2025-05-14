@@ -5,21 +5,24 @@ import {
   InputModifiers,
   MessageContent,
   RangeInFile,
+  SlashCommandDescription,
 } from "core";
-import { getBasename, getRelativePath } from "core/util";
-import resolveEditorContent, {
-  hasSlashCommandOrContextProvider,
-} from "../../components/mainInput/resolveInput";
+import * as URI from "uri-js";
+import { resolveEditorContent } from "../../components/mainInput/TipTapEditor/utils";
+import { selectSelectedChatModel } from "../slices/configSlice";
 import { ThunkApiType } from "../store";
-import { selectDefaultModel } from "../slices/configSlice";
-import { setIsGatheringContext } from "../slices/sessionSlice";
-import { updateFileSymbolsFromNewContextItems } from "./updateFileSymbols";
 
 export const gatherContext = createAsyncThunk<
   {
     selectedContextItems: ContextItemWithId[];
     selectedCode: RangeInFile[];
     content: MessageContent;
+    slashCommandWithInput:
+      | {
+          command: SlashCommandDescription;
+          input: string;
+        }
+      | undefined;
   },
   {
     editorState: JSONContent;
@@ -34,83 +37,88 @@ export const gatherContext = createAsyncThunk<
     { dispatch, extra, getState },
   ) => {
     const state = getState();
-    const defaultModel = selectDefaultModel(state);
+    const selectedChatModel = selectSelectedChatModel(state);
+
     const defaultContextProviders =
       state.config.config.experimental?.defaultContext ?? [];
 
-    if (!state.config.defaultModelTitle) {
-      console.error("Failed to gather context, no model selected");
-      return;
+    if (!selectedChatModel) {
+      console.error(
+        "gatherContext thunk: Cannot gather context, no model selected",
+      );
+      throw new Error("No chat model selected");
     }
 
     // Resolve context providers and construct new history
-    const shouldGatherContext =
-      modifiers.useCodebase || hasSlashCommandOrContextProvider(editorState);
-
-    if (shouldGatherContext) {
-      dispatch(setIsGatheringContext(true));
-    }
-
-    let [selectedContextItems, selectedCode, content] =
+    let [selectedContextItems, selectedCode, content, slashCommandWithInput] =
       await resolveEditorContent({
         editorState,
         modifiers,
         ideMessenger: extra.ideMessenger,
         defaultContextProviders,
+        availableSlashCommands: state.config.config.slashCommands,
         dispatch,
-        selectedModelTitle: state.config.defaultModelTitle,
       });
 
     // Automatically use currently open file
     if (!modifiers.noContext) {
-      const usingFreeTrial = defaultModel?.provider === "free-trial";
+      const usingFreeTrial = selectedChatModel.provider === "free-trial";
 
-      const currentFile = await extra.ideMessenger.ide.getCurrentFile();
-      if (currentFile) {
-        let currentFileContents = currentFile.contents;
-        if (usingFreeTrial) {
-          currentFileContents = currentFile.contents
-            .split("\n")
-            .slice(0, 1000)
-            .join("\n");
-        }
-        if (
-          !selectedContextItems.find(
-            (item) => item.uri?.value === currentFile.path,
-          )
-        ) {
+      const currentFileResponse = await extra.ideMessenger.request(
+        "context/getContextItems",
+        {
+          name: "currentFile",
+          query: "non-mention-usage",
+          fullInput: "",
+          selectedCode: [],
+        },
+      );
+      if (currentFileResponse.status === "success") {
+        const items = currentFileResponse.content;
+        if (items.length > 0) {
+          const currentFile = items[0];
+          const uri = currentFile.uri?.value;
+
           // don't add the file if it's already in the context items
-          selectedContextItems.unshift({
-            content: `The following file is currently open. Don't reference it if it's not relevant to the user's message.\n\n\`\`\`${getRelativePath(
-              currentFile.path,
-              await extra.ideMessenger.ide.getWorkspaceDirs(),
-            )}\n${currentFileContents}\n\`\`\``,
-            name: `Active file: ${getBasename(currentFile.path)}`,
-            description: currentFile.path,
-            id: {
-              itemId: currentFile.path,
+          if (
+            uri &&
+            !selectedContextItems.find(
+              (item) => item.uri?.value && URI.equal(item.uri.value, uri),
+            )
+          ) {
+            // Limit to 1000 lines if using free trial
+            if (usingFreeTrial) {
+              currentFile.content = currentFile.content
+                .split("\n")
+                .slice(0, 1000)
+                .join("\n");
+              if (!currentFile.content.endsWith("```")) {
+                currentFile.content += "\n```";
+              }
+            }
+            currentFile.id = {
               providerTitle: "file",
-            },
-            uri: {
-              type: "file",
-              value: currentFile.path,
-            },
-          });
+              itemId: uri,
+            };
+            selectedContextItems.unshift(currentFile);
+          }
         }
       }
     }
-
-    dispatch(updateFileSymbolsFromNewContextItems(selectedContextItems));
 
     if (promptPreamble) {
       if (typeof content === "string") {
         content = promptPreamble + content;
-      } else {
+      } else if (content[0].type === "text") {
         content[0].text = promptPreamble + content[0].text;
       }
     }
 
-    // dispatch(addContextItems(contextItems));
-    return { selectedContextItems, selectedCode, content };
+    return {
+      selectedContextItems,
+      selectedCode,
+      content,
+      slashCommandWithInput,
+    };
   },
 );

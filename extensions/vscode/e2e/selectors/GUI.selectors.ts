@@ -1,9 +1,10 @@
 import { By, WebDriver, WebView } from "vscode-extension-tester";
+
 import { SelectorUtils } from "./SelectorUtils";
 
 export class GUISelectors {
   public static getDescription(view: WebView) {
-    return view.findWebElement(By.xpath("//*[contains(text(), 'Quickly')]"));
+    return view.findWebElement(By.xpath("//*[contains(text(), 'quickly')]"));
   }
 
   public static getMessageInputFields(view: WebView) {
@@ -14,7 +15,7 @@ export class GUISelectors {
     view: WebView,
     index: number,
   ) {
-    const elements = await view.findWebElements(By.className("tiptap"));
+    const elements = await this.getMessageInputFields(view);
     return elements[index];
   }
 
@@ -30,8 +31,62 @@ export class GUISelectors {
     return SelectorUtils.getElementByDataTestId(view, "submit-input-button");
   }
 
+  public static getAcceptToolCallButton(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      "accept-tool-call-button",
+    );
+  }
+
+  public static getRejectToolCallButton(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      "reject-tool-call-button",
+    );
+  }
+
+  public static getToolCallStatusMessage(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(view, "toggle-div-title");
+  }
+
+  public static getToolButton(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      `block-settings-toolbar-icon-tools`,
+    );
+  }
+
+  public static getToolPolicyButton(view: WebView, toolName: string) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      `tool-policy-item-${toolName}`,
+    );
+  }
+
   public static getModelDropdownButton(view: WebView) {
     return SelectorUtils.getElementByDataTestId(view, "model-select-button");
+  }
+
+  public static getModeDropdownButton(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(view, "mode-select-button");
+  }
+
+  public static getFirstContextProviderDropdownItem(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      "context-provider-dropdown-item",
+    );
+  }
+
+  public static getContextItemsPeek(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(view, "context-items-peek");
+  }
+
+  public static getFirstContextItemsPeekItem(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      "context-items-peek-item",
+    );
   }
 
   public static getNthHistoryTableRow(view: WebView, index: number) {
@@ -53,6 +108,37 @@ export class GUISelectors {
     );
   }
 
+  public static getModeDropdownOption(view: WebView, option: string) {
+    return view.findWebElement(
+      By.xpath(`//*[@role="listbox"]//*[contains(text(), "${option}")]`),
+    );
+  }
+
+  public static getOnboardingTabButton(view: WebView, title: string) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      `onboarding-tab-${title}`,
+    );
+  }
+
+  public static getBestChatApiKeyInput(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      "best-chat-api-key-input",
+    );
+  }
+
+  public static getBestAutocompleteApiKeyInput(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(
+      view,
+      "best-autocomplete-api-key-input",
+    );
+  }
+
+  public static getTutorialCard(view: WebView) {
+    return SelectorUtils.getElementByDataTestId(view, "tutorial-card");
+  }
+
   public static getThreadMessageByText(view: WebView, text: string) {
     return view.findWebElement(
       By.xpath(`//*[@class="thread-message"]//*[contains(text(), "${text}")]`),
@@ -65,5 +151,22 @@ export class GUISelectors {
 
   public static getNewSessionNavButton(view: WebView) {
     return SelectorUtils.getElementByAriaLabel(view, "New Session");
+  }
+
+  public static async getInputBoxCodeBlockAtIndex(
+    view: WebView,
+    index: number,
+  ) {
+    const firstInputField = await this.getMessageInputFieldAtIndex(view, index);
+
+    const codeBlockElement = await firstInputField.findElement(
+      By.xpath(".//code"),
+    );
+
+    return codeBlockElement;
+  }
+
+  public static getContinueExtensionBadge(view: WebView) {
+    return SelectorUtils.getElementByAriaLabel(view, "Continue");
   }
 }

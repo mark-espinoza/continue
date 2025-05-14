@@ -1,4 +1,5 @@
 import { LLMOptions } from "../../index.js";
+import { LlmApiRequestType } from "../openaiTypeConverters.js";
 
 import OpenAI from "./OpenAI.js";
 
@@ -9,9 +10,11 @@ class Azure extends OpenAI {
     return false;
   }
 
+  protected useOpenAIAdapterFor: (LlmApiRequestType | "*")[] = [];
+
   static defaultOptions: Partial<LLMOptions> = {
     apiVersion: "2024-02-15-preview",
-    apiType: "azure",
+    apiType: "azure-openai",
   };
 
   constructor(options: LLMOptions) {

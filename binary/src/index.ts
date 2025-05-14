@@ -1,6 +1,7 @@
 process.env.IS_BINARY = "true";
 import { Command } from "commander";
 import { Core } from "core/core";
+import { LLMLogFormatter } from "core/llm/logFormatter";
 import { FromCoreProtocol, ToCoreProtocol } from "core/protocol";
 import { IMessenger } from "core/protocol/messenger";
 import { getCoreLogsPath, getPromptLogsPath } from "core/util/paths";
@@ -20,11 +21,11 @@ program.action(async () => {
     let messenger: IMessenger<ToCoreProtocol, FromCoreProtocol>;
     if (process.env.CONTINUE_DEVELOPMENT === "true") {
       messenger = new TcpMessenger<ToCoreProtocol, FromCoreProtocol>();
-      console.log("Waiting for connection");
+      console.log("[binary] Waiting for connection");
       await (
         messenger as TcpMessenger<ToCoreProtocol, FromCoreProtocol>
       ).awaitConnection();
-      console.log("Connected");
+      console.log("[binary] Connected");
     } else {
       setupCoreLogging();
       // await setupCa();
@@ -32,10 +33,11 @@ program.action(async () => {
     }
     const ide = new IpcIde(messenger);
     const promptLogsPath = getPromptLogsPath();
-    const core = new Core(messenger, ide, async (text) => {
-      fs.appendFileSync(promptLogsPath, text + "\n\n");
-    });
-    console.log("Core started");
+
+    const core = new Core(messenger, ide);
+    new LLMLogFormatter(core.llmLogger, fs.createWriteStream(promptLogsPath));
+
+    console.log("[binary] Core started");
   } catch (e) {
     fs.writeFileSync("./error.log", `${new Date().toISOString()} ${e}\n`);
     console.log("Error: ", e);

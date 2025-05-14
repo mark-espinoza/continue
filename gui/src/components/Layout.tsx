@@ -1,44 +1,33 @@
-import { useEffect, useMemo } from "react";
+import { useContext, useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import { CustomScrollbarDiv, defaultBorderRadius } from ".";
+import { AuthProvider } from "../context/Auth";
+import { IdeMessengerContext } from "../context/IdeMessenger";
+import { LocalStorageProvider } from "../context/LocalStorage";
 import { useWebviewListener } from "../hooks/useWebviewListener";
 import { useAppDispatch, useAppSelector } from "../redux/hooks";
-import { setEditStatus, focusEdit } from "../redux/slices/editModeState";
-import { setDialogMessage, setShowDialog } from "../redux/slices/uiSlice";
-import {
-  addCodeToEdit,
-  updateApplyState,
-  setMode,
-  newSession,
-} from "../redux/slices/sessionSlice";
-import { getFontSize, isMetaEquivalentKeyPressed } from "../util";
-import { getLocalStorage, setLocalStorage } from "../util/localStorage";
+import { setCodeToEdit } from "../redux/slices/editModeState";
+import { setShowDialog } from "../redux/slices/uiSlice";
+import { enterEditMode, exitEditMode } from "../redux/thunks/editMode";
+import { saveCurrentSession } from "../redux/thunks/session";
+import { fontSize, isMetaEquivalentKeyPressed } from "../util";
+import { incrementFreeTrialCount } from "../util/freeTrial";
 import { ROUTES } from "../util/navigation";
+import { FatalErrorIndicator } from "./config/FatalErrorNotice";
 import TextDialog from "./dialogs";
 import Footer from "./Footer";
+import { LumpProvider } from "./mainInput/Lump/LumpContext";
+import { useMainEditor } from "./mainInput/TipTapEditor";
 import { isNewUserOnboarding, useOnboardingCard } from "./OnboardingCard";
+import OSRContextMenu from "./OSRContextMenu";
 import PostHogPageView from "./PosthogPageView";
-import AccountDialog from "./AccountDialog";
-import { AuthProvider } from "../context/Auth";
-import { exitEditMode } from "../redux/thunks";
-import { loadLastSession, saveCurrentSession } from "../redux/thunks/session";
 
 const LayoutTopDiv = styled(CustomScrollbarDiv)`
   height: 100%;
   border-radius: ${defaultBorderRadius};
   position: relative;
   overflow-x: hidden;
-
-  &::after {
-    position: absolute;
-    content: "";
-    width: 100%;
-    height: 1px;
-    background-color: rgba(136, 136, 136, 0.3);
-    top: 0;
-    left: 0;
-  }
 `;
 
 const GridDiv = styled.div`
@@ -53,27 +42,62 @@ const Layout = () => {
   const location = useLocation();
   const dispatch = useAppDispatch();
   const onboardingCard = useOnboardingCard();
-  const { pathname } = useLocation();
+  const ideMessenger = useContext(IdeMessengerContext);
 
-  const configError = useAppSelector((state) => state.config.configError);
-
-  const hasFatalErrors = useMemo(() => {
-    return configError?.some((error) => error.fatal);
-  }, [configError]);
-
+  const { mainEditor } = useMainEditor();
   const dialogMessage = useAppSelector((state) => state.ui.dialogMessage);
 
   const showDialog = useAppSelector((state) => state.ui.showDialog);
+  const mode = useAppSelector((state) => state.session.mode);
 
   useWebviewListener(
-    "openDialogMessage",
-    async (message) => {
-      if (message === "account") {
-        dispatch(setShowDialog(true));
-        dispatch(setDialogMessage(<AccountDialog />));
+    "newSession",
+    async () => {
+      navigate(ROUTES.HOME);
+      if (mode === "edit") {
+        await dispatch(exitEditMode({}));
+      } else {
+        await dispatch(
+          saveCurrentSession({
+            openNewSession: true,
+            generateTitle: true,
+          }),
+        );
       }
     },
-    [],
+    [mode],
+  );
+
+  useWebviewListener(
+    "isContinueInputFocused",
+    async () => {
+      return false;
+    },
+    [location.pathname],
+    location.pathname === ROUTES.HOME,
+  );
+
+  useWebviewListener(
+    "focusContinueInputWithNewSession",
+    async () => {
+      navigate(ROUTES.HOME);
+      if (mode === "edit") {
+        await dispatch(
+          exitEditMode({
+            openNewSession: true,
+          }),
+        );
+      } else {
+        await dispatch(
+          saveCurrentSession({
+            openNewSession: true,
+            generateTitle: true,
+          }),
+        );
+      }
+    },
+    [location.pathname, mode],
+    location.pathname === ROUTES.HOME,
   );
 
   useWebviewListener(
@@ -82,19 +106,6 @@ const Layout = () => {
       navigate("/models");
     },
     [navigate],
-  );
-
-  useWebviewListener(
-    "viewHistory",
-    async () => {
-      // Toggle the history page / main page
-      if (location.pathname === "/history") {
-        navigate("/");
-      } else {
-        navigate("/history");
-      }
-    },
-    [location, navigate],
   );
 
   useWebviewListener(
@@ -112,26 +123,7 @@ const Layout = () => {
   useWebviewListener(
     "incrementFtc",
     async () => {
-      const u = getLocalStorage("ftc");
-      if (u) {
-        setLocalStorage("ftc", u + 1);
-      } else {
-        setLocalStorage("ftc", 1);
-      }
-    },
-    [],
-  );
-
-  useWebviewListener(
-    "updateApplyState",
-    async (state) => {
-      // dispatch(
-      //   updateCurCheckpoint({
-      //     filepath: state.filepath,
-      //     content: state.fileContent,
-      //   }),
-      // );
-      dispatch(updateApplyState(state));
+      incrementFreeTrialCount();
     },
     [],
   );
@@ -155,56 +147,32 @@ const Layout = () => {
   useWebviewListener(
     "focusEdit",
     async () => {
-      await dispatch(
-        saveCurrentSession({
-          openNewSession: false,
-        }),
-      );
-      dispatch(newSession());
-      dispatch(focusEdit());
-      dispatch(setMode("edit"));
+      await ideMessenger.request("edit/addCurrentSelection", undefined);
+      await dispatch(enterEditMode({}));
+      mainEditor?.commands.focus();
     },
-    [],
+    [ideMessenger, mainEditor],
   );
 
   useWebviewListener(
-    "focusEditWithoutClear",
-    async () => {
-      await dispatch(
-        saveCurrentSession({
-          openNewSession: true,
-        }),
-      );
-      dispatch(focusEdit());
-      dispatch(setMode("edit"));
-    },
-    [],
-  );
-
-  useWebviewListener(
-    "addCodeToEdit",
+    "setCodeToEdit",
     async (payload) => {
-      dispatch(addCodeToEdit(payload));
-    },
-    [navigate],
-  );
-
-  useWebviewListener(
-    "setEditStatus",
-    async ({ status, fileAfterEdit }) => {
-      dispatch(setEditStatus({ status, fileAfterEdit }));
+      dispatch(
+        setCodeToEdit({
+          codeToEdit: payload,
+        }),
+      );
     },
     [],
   );
 
-  useWebviewListener("exitEditMode", async () => {
-    dispatch(
-      loadLastSession({
-        saveCurrentSession: false,
-      }),
-    );
-    dispatch(exitEditMode());
-  });
+  useWebviewListener(
+    "exitEditMode",
+    async () => {
+      await dispatch(exitEditMode({}));
+    },
+    [],
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: any) => {
@@ -236,53 +204,42 @@ const Layout = () => {
   }, [location]);
 
   return (
-    <AuthProvider>
-      <LayoutTopDiv>
-        <div
-          style={{
-            scrollbarGutter: "stable both-edges",
-            minHeight: "100%",
-            display: "grid",
-            gridTemplateRows: "1fr auto",
-          }}
-        >
-          <TextDialog
-            showDialog={showDialog}
-            onEnter={() => {
-              dispatch(setShowDialog(false));
-            }}
-            onClose={() => {
-              dispatch(setShowDialog(false));
-            }}
-            message={dialogMessage}
-          />
+    <LocalStorageProvider>
+      <AuthProvider>
+        <LayoutTopDiv>
+          <LumpProvider>
+            <OSRContextMenu />
+            <div
+              style={{
+                scrollbarGutter: "stable both-edges",
+                minHeight: "100%",
+                display: "grid",
+                gridTemplateRows: "1fr auto",
+              }}
+            >
+              <TextDialog
+                showDialog={showDialog}
+                onEnter={() => {
+                  dispatch(setShowDialog(false));
+                }}
+                onClose={() => {
+                  dispatch(setShowDialog(false));
+                }}
+                message={dialogMessage}
+              />
 
-          <GridDiv className="">
-            <PostHogPageView />
-            <Outlet />
-
-            {hasFatalErrors && pathname !== ROUTES.CONFIG_ERROR && (
-              <div
-                className="z-50 cursor-pointer bg-red-600 p-4 text-center text-white"
-                role="alert"
-                onClick={() => navigate(ROUTES.CONFIG_ERROR)}
-              >
-                <strong className="font-bold">Error!</strong>{" "}
-                <span className="block sm:inline">
-                  Could not load config.json
-                </span>
-                <div className="mt-2 underline">Learn More</div>
-              </div>
-            )}
-            <Footer />
-          </GridDiv>
-        </div>
-        <div
-          style={{ fontSize: `${getFontSize() - 4}px` }}
-          id="tooltip-portal-div"
-        />
-      </LayoutTopDiv>
-    </AuthProvider>
+              <GridDiv className="">
+                <PostHogPageView />
+                <Outlet />
+                <FatalErrorIndicator />
+                <Footer />
+              </GridDiv>
+            </div>
+            <div style={{ fontSize: fontSize(-4) }} id="tooltip-portal-div" />
+          </LumpProvider>
+        </LayoutTopDiv>
+      </AuthProvider>
+    </LocalStorageProvider>
   );
 };
 

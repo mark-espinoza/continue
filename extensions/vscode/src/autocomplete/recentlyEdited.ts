@@ -3,6 +3,8 @@ import { getSymbolsForSnippet } from "core/autocomplete/context/ranking";
 import { RecentlyEditedRange } from "core/autocomplete/util/types";
 import * as vscode from "vscode";
 
+import { VsCodeIdeUtils } from "../util/ideUtils";
+
 type VsCodeRecentlyEditedRange = {
   uri: vscode.Uri;
   range: vscode.Range;
@@ -21,11 +23,8 @@ export class RecentlyEditedTracker {
   private recentlyEditedDocuments: VsCodeRecentlyEditedDocument[] = [];
   private static maxRecentlyEditedDocuments = 10;
 
-  constructor() {
+  constructor(private ideUtils: VsCodeIdeUtils) {
     vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document.uri.scheme !== "file") {
-        return;
-      }
       event.contentChanges.forEach((change) => {
         const editedRange = {
           uri: event.document.uri,
@@ -49,6 +48,11 @@ export class RecentlyEditedTracker {
   private async insertRange(
     editedRange: Omit<VsCodeRecentlyEditedRange, "lines" | "symbols">,
   ): Promise<void> {
+
+    if (editedRange.uri.scheme !== "file") {
+      return;
+    }
+
     // Check for overlap with any existing ranges
     for (let i = 0; i < this.recentlyEditedRanges.length; i++) {
       let range = this.recentlyEditedRanges[i];
@@ -110,20 +114,22 @@ export class RecentlyEditedTracker {
   private async _getContentsForRange(
     entry: Omit<VsCodeRecentlyEditedRange, "lines" | "symbols">,
   ): Promise<string> {
-    return vscode.workspace.fs.readFile(entry.uri).then((content) =>
-      content
+    const content = await this.ideUtils.readFile(entry.uri);
+    if (content === null) {
+      return "";
+    }
+    return content
         .toString()
         .split("\n")
         .slice(entry.range.start.line, entry.range.end.line + 1)
-        .join("\n"),
-    );
+        .join("\n");
   }
 
   public async getRecentlyEditedRanges(): Promise<RecentlyEditedRange[]> {
     return this.recentlyEditedRanges.map((entry) => {
       return {
         ...entry,
-        filepath: entry.uri.fsPath,
+        filepath: entry.uri.toString(),
       };
     });
   }
@@ -140,7 +146,7 @@ export class RecentlyEditedTracker {
           const lines = contents.split("\n");
 
           return {
-            filepath: entry.uri.fsPath,
+            filepath: entry.uri.toString(),
             contents,
             range: {
               start: { line: 0, character: 0 },

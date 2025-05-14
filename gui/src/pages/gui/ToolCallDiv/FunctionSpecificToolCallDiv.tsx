@@ -1,26 +1,44 @@
-import { ToolCall, ToolCallState } from "core";
+import { ToolCallDelta, ToolCallState } from "core";
+import { BuiltInToolNames } from "core/tools/builtIn";
 import { CreateFile } from "./CreateFile";
+import { EditFile } from "./EditFile";
 import { RunTerminalCommand } from "./RunTerminalCommand";
 
 function FunctionSpecificToolCallDiv({
   toolCall,
   toolCallState,
+  historyIndex,
 }: {
-  toolCall: ToolCall;
+  toolCall: ToolCallDelta;
   toolCallState: ToolCallState;
+  historyIndex: number;
 }) {
   const args = toolCallState.parsedArgs;
 
-  switch (toolCall.function.name) {
-    case "create_new_file":
+  switch (toolCall.function?.name) {
+    case BuiltInToolNames.CreateNewFile:
       return (
-        <CreateFile filepath={args.filepath} fileContents={args.contents} />
+        <CreateFile
+          relativeFilepath={args.filepath}
+          fileContents={args.contents}
+          historyIndex={historyIndex}
+        />
       );
-    case "run_terminal_command":
+    case BuiltInToolNames.EditExistingFile:
+      return (
+        <EditFile
+          relativeFilePath={args.filepath ?? ""}
+          changes={args.changes ?? ""}
+          toolCallId={toolCall.id}
+          historyIndex={historyIndex}
+        />
+      );
+    case BuiltInToolNames.RunTerminalCommand:
       return (
         <RunTerminalCommand
           command={args.command}
           toolCallState={toolCallState}
+          toolCallId={toolCall.id}
         />
       );
     default:

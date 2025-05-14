@@ -1,19 +1,34 @@
-import { ConfigValidationError } from "../config/validation.js";
-
+import { ConfigResult } from "@continuedev/config-yaml";
+import { SerializedOrgWithProfiles } from "../config/ProfileLifecycleManager.js";
+import { ControlPlaneSessionInfo } from "../control-plane/client.js";
 import type {
+  BrowserSerializedContinueConfig,
   ContextItemWithId,
+  ContextProviderName,
   IndexingProgressUpdate,
   IndexingStatus,
-  PackageDocsResult,
 } from "../index.js";
 
 export type ToWebviewFromIdeOrCoreProtocol = {
-  configUpdate: [undefined, void];
-  configError: [ConfigValidationError[] | undefined, void];
-  getDefaultModelTitle: [undefined, string];
+  configUpdate: [
+    {
+      result: ConfigResult<BrowserSerializedContinueConfig>;
+      profileId: string | null;
+      organizations: SerializedOrgWithProfiles[];
+      selectedOrgId: string | null;
+    },
+    void,
+  ];
+  getDefaultModelTitle: [undefined, string | undefined];
   indexProgress: [IndexingProgressUpdate, void]; // Codebase
   "indexing/statusUpdate": [IndexingStatus, void]; // Docs, etc.
-  refreshSubmenuItems: [undefined, void];
+  refreshSubmenuItems: [
+    {
+      providers: "all" | "dependsOnIndexing" | ContextProviderName[];
+    },
+    void,
+  ];
+  didCloseFiles: [{ uris: string[] }, void];
   isContinueInputFocused: [undefined, boolean];
   addContextItem: [
     {
@@ -25,7 +40,7 @@ export type ToWebviewFromIdeOrCoreProtocol = {
   setTTSActive: [boolean, void];
   getWebviewHistoryLength: [undefined, number];
   getCurrentSessionId: [undefined, string];
-  signInToControlPlane: [undefined, void];
-  openDialogMessage: ["account", void];
-  "docs/suggestions": [PackageDocsResult[], void];
+  "jetbrains/setColors": [Record<string, string>, void];
+  sessionUpdate: [{ sessionInfo: ControlPlaneSessionInfo | undefined }, void];
+  toolCallPartialOutput: [{ toolCallId: string; contextItems: any[] }, void];
 };

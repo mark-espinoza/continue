@@ -21,11 +21,11 @@ async function collectDiffs(
 ): Promise<{ ourDiffs: DiffLine[]; myersDiffs: any }> {
   const ourDiffs: DiffLine[] = [];
 
-  for (const diffLine of (await deterministicApplyLazyEdit(
+  for (const diffLine of (await deterministicApplyLazyEdit({
     oldFile,
-    newFile,
+    newLazyFile: newFile,
     filename,
-  )) ?? []) {
+  })) ?? []) {
     ourDiffs.push(diffLine);
   }
 
@@ -157,5 +157,13 @@ describe("deterministicApplyLazyEdit(", () => {
 
   test("should acknowledge jsx_expression lazy comments", async () => {
     await expectDiff("migration-page.tsx");
+  });
+
+  test.skip("should handle case where surrounding class is neglected, with lazy block surrounding", async () => {
+    await expectDiff("calculator-class-neglected.js");
+  });
+
+  test("should handle case where surrounding class is neglected, without lazy block surrounding", async () => {
+    await expectDiff("calculator-only-method.js");
   });
 });

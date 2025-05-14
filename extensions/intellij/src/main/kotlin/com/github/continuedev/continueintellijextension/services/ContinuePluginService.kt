@@ -1,36 +1,34 @@
 package com.github.continuedev.continueintellijextension.services
 
+import IntelliJIDE
 import com.github.continuedev.continueintellijextension.`continue`.CoreMessenger
 import com.github.continuedev.continueintellijextension.`continue`.CoreMessengerManager
+import com.github.continuedev.continueintellijextension.`continue`.DiffManager
 import com.github.continuedev.continueintellijextension.`continue`.IdeProtocolClient
-import com.github.continuedev.continueintellijextension.`continue`.uuid
-import com.github.continuedev.continueintellijextension.toolWindow.ContinueBrowser
 import com.github.continuedev.continueintellijextension.toolWindow.ContinuePluginToolWindowFactory
-import com.google.gson.Gson
+import com.github.continuedev.continueintellijextension.utils.uuid
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.DumbAware
-import com.intellij.openapi.project.Project
-import com.intellij.ui.jcef.executeJavaScriptAsync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import java.util.UUID
+import kotlin.properties.Delegates
 
 @Service(Service.Level.PROJECT)
-class ContinuePluginService(project: Project) : Disposable, DumbAware {
-    val coroutineScope = CoroutineScope(Dispatchers.Main)
+class ContinuePluginService : Disposable, DumbAware {
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
     var continuePluginWindow: ContinuePluginToolWindowFactory.ContinuePluginWindow? = null
-
-    var ideProtocolClient: IdeProtocolClient? = null
-
+    var listener: (() -> Unit)? = null
+    var ideProtocolClient: IdeProtocolClient? by Delegates.observable(null) { _, _, _ ->
+        synchronized(this) { listener?.also { listener = null }?.invoke() }
+    }
     var coreMessengerManager: CoreMessengerManager? = null
     val coreMessenger: CoreMessenger?
         get() = coreMessengerManager?.coreMessenger
-
     var workspacePaths: Array<String>? = null
-    var windowId: String = UUID.randomUUID().toString()
+    var windowId: String = uuid()
+    var diffManager: DiffManager? = null
 
     override fun dispose() {
         coroutineScope.cancel()
@@ -46,5 +44,28 @@ class ContinuePluginService(project: Project) : Disposable, DumbAware {
         messageId: String = uuid()
     ) {
         continuePluginWindow?.browser?.sendToWebview(messageType, data, messageId)
+    }
+
+    /**
+     * Add a listener for protocolClient initialization.
+     * Currently, only one needs to be processed. If there are more than one,
+     * we can use an array to add listeners to ensure that the message is processed.
+     */
+    fun onProtocolClientInitialized(listener: () -> Unit) {
+        if (ideProtocolClient == null) {
+            synchronized(this) {
+                if (ideProtocolClient == null) {
+                    this.listener = listener
+                } else {
+                    listener()
+                }
+            }
+        } else {
+            listener()
+        }
+    }
+
+    fun updateLastFileSaveTimestamp() {
+        ideProtocolClient?.updateLastFileSaveTimestamp()
     }
 }

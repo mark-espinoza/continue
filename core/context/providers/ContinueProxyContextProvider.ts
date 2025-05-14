@@ -1,4 +1,4 @@
-import { controlPlaneEnv } from "../../control-plane/env.js";
+import { getControlPlaneEnv } from "../../control-plane/env.js";
 import {
   ContextItem,
   ContextProviderDescription,
@@ -24,6 +24,7 @@ class ContinueProxyContextProvider extends BaseContextProvider {
         this.options.title || ContinueProxyContextProvider.description.title,
       displayTitle:
         this.options.displayTitle ||
+        this.options.name || 
         ContinueProxyContextProvider.description.displayTitle,
       description:
         this.options.description ||
@@ -35,11 +36,9 @@ class ContinueProxyContextProvider extends BaseContextProvider {
   async loadSubmenuItems(
     args: LoadSubmenuItemsArgs,
   ): Promise<ContextSubmenuItem[]> {
+    const env = await getControlPlaneEnv(args.ide.getIdeSettings());
     const response = await args.fetch(
-      new URL(
-        `/proxy/context/${this.options.id}/list`,
-        controlPlaneEnv.CONTROL_PLANE_URL,
-      ),
+      new URL(`/proxy/context/${this.options.id}/list`, env.CONTROL_PLANE_URL),
       {
         method: "GET",
         headers: {
@@ -56,10 +55,11 @@ class ContinueProxyContextProvider extends BaseContextProvider {
     query: string,
     extras: ContextProviderExtras,
   ): Promise<ContextItem[]> {
+    const env = await getControlPlaneEnv(extras.ide.getIdeSettings());
     const response = await extras.fetch(
       new URL(
         `/proxy/context/${this.options.id}/retrieve`,
-        controlPlaneEnv.CONTROL_PLANE_URL,
+        env.CONTROL_PLANE_URL,
       ),
       {
         method: "POST",

@@ -2,10 +2,12 @@ import {
   BaseCompletionOptions,
   IdeSettings,
   ILLM,
+  ILLMLogger,
+  JSONModelDescription,
   LLMOptions,
-  ModelDescription,
 } from "../..";
 import { renderTemplatedString } from "../../promptFiles/v1/renderTemplatedString";
+import { DEFAULT_CHAT_SYSTEM_MESSAGE } from "../constructMessages";
 import { BaseLLM } from "../index";
 
 import Anthropic from "./Anthropic";
@@ -18,6 +20,7 @@ import Cloudflare from "./Cloudflare";
 import Cohere from "./Cohere";
 import DeepInfra from "./DeepInfra";
 import Deepseek from "./Deepseek";
+import Docker from "./Docker";
 import Fireworks from "./Fireworks";
 import Flowise from "./Flowise";
 import FreeTrial from "./FreeTrial";
@@ -25,7 +28,9 @@ import FunctionNetwork from "./FunctionNetwork";
 import Gemini from "./Gemini";
 import Groq from "./Groq";
 import HuggingFaceInferenceAPI from "./HuggingFaceInferenceAPI";
+import HuggingFaceTEIEmbeddingsProvider from "./HuggingFaceTEI";
 import HuggingFaceTGI from "./HuggingFaceTGI";
+import Inception from "./Inception";
 import Kindo from "./Kindo";
 import LlamaCpp from "./LlamaCpp";
 import Llamafile from "./Llamafile";
@@ -34,11 +39,15 @@ import Mistral from "./Mistral";
 import MockLLM from "./Mock";
 import Moonshot from "./Moonshot";
 import Msty from "./Msty";
+import NCompass from "./NCompass";
 import Nebius from "./Nebius";
+import Novita from "./Novita";
 import Nvidia from "./Nvidia";
 import Ollama from "./Ollama";
 import OpenAI from "./OpenAI";
 import OpenRouter from "./OpenRouter";
+import OVHcloud from "./OVHcloud";
+import { Relace } from "./Relace";
 import Replicate from "./Replicate";
 import SageMaker from "./SageMaker";
 import SambaNova from "./SambaNova";
@@ -48,8 +57,10 @@ import ContinueProxy from "./stubs/ContinueProxy";
 import TestLLM from "./Test";
 import TextGenWebUI from "./TextGenWebUI";
 import Together from "./Together";
+import Venice from "./Venice";
 import VertexAI from "./VertexAI";
 import Vllm from "./Vllm";
+import Voyage from "./Voyage";
 import WatsonX from "./WatsonX";
 import xAI from "./xAI";
 
@@ -65,11 +76,14 @@ export const LLMClasses = [
   Replicate,
   TextGenWebUI,
   Together,
+  Novita,
   HuggingFaceTGI,
+  HuggingFaceTEIEmbeddingsProvider,
   HuggingFaceInferenceAPI,
   Kindo,
   LlamaCpp,
   OpenAI,
+  OVHcloud,
   LMStudio,
   Mistral,
   Bedrock,
@@ -79,9 +93,11 @@ export const LLMClasses = [
   Flowise,
   Groq,
   Fireworks,
+  NCompass,
   ContinueProxy,
   Cloudflare,
   Deepseek,
+  Docker,
   Msty,
   Azure,
   WatsonX,
@@ -94,20 +110,23 @@ export const LLMClasses = [
   Cerebras,
   Asksage,
   Nebius,
+  Venice,
   VertexAI,
   xAI,
   SiliconFlow,
   Scaleway,
+  Relace,
+  Inception,
+  Voyage,
 ];
 
 export async function llmFromDescription(
-  desc: ModelDescription,
+  desc: JSONModelDescription,
   readFile: (filepath: string) => Promise<string>,
   uniqueId: string,
   ideSettings: IdeSettings,
-  writeLog: (log: string) => Promise<void>,
+  llmLogger: ILLMLogger,
   completionOptions?: BaseCompletionOptions,
-  systemMessage?: string,
 ): Promise<BaseLLM | undefined> {
   const cls = LLMClasses.find((llm) => llm.providerName === desc.provider);
 
@@ -120,9 +139,15 @@ export async function llmFromDescription(
     ...desc.completionOptions,
   };
 
-  systemMessage = desc.systemMessage ?? systemMessage;
-  if (systemMessage !== undefined) {
-    systemMessage = await renderTemplatedString(systemMessage, readFile, {});
+  let baseChatSystemMessage: string | undefined = undefined;
+  if (desc.systemMessage !== undefined) {
+    baseChatSystemMessage = DEFAULT_CHAT_SYSTEM_MESSAGE;
+    baseChatSystemMessage += "\n\n";
+    baseChatSystemMessage += await renderTemplatedString(
+      desc.systemMessage,
+      readFile,
+      {},
+    );
   }
 
   let options: LLMOptions = {
@@ -134,8 +159,9 @@ export async function llmFromDescription(
         finalCompletionOptions.maxTokens ??
         cls.defaultOptions?.completionOptions?.maxTokens,
     },
-    systemMessage,
-    writeLog,
+    baseChatSystemMessage,
+    baseAgentSystemMessage: baseChatSystemMessage,
+    logger: llmLogger,
     uniqueId,
   };
 

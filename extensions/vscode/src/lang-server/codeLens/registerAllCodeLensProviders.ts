@@ -1,7 +1,6 @@
 import { ContinueConfig } from "core";
 import * as vscode from "vscode";
 
-import { DiffManager } from "../../diff/horizontal";
 import { VerticalDiffCodeLens } from "../../diff/vertical/manager";
 
 import * as providers from "./providers";
@@ -20,6 +19,10 @@ let suggestionsCodeLensDisposable: vscode.Disposable | undefined = undefined;
 let configPyCodeLensDisposable: vscode.Disposable | undefined = undefined;
 let tutorialCodeLensDisposable: vscode.Disposable | undefined = undefined;
 let quickActionsCodeLensDisposable: vscode.Disposable | undefined = undefined;
+let configJsonConverterCodeLensDisposable: vscode.Disposable | undefined =
+  undefined;
+let downloadYamlExtensionCodeLensDisposable: vscode.Disposable | undefined =
+  undefined;
 
 /**
  * Registers the Quick Actions CodeLens provider if Quick Actions are enabled.
@@ -67,7 +70,6 @@ function registerQuickActionsProvider(
  * It also sets up a subscription to VS Code Quick Actions settings changes.
  *
  * @param context - The VS Code extension context
- * @param diffManager - The DiffManager instance for managing diffs
  * @param editorToVerticalDiffCodeLens - A Map of editor IDs to VerticalDiffCodeLens arrays
  * @param config - The Continue configuration object
  *
@@ -75,9 +77,8 @@ function registerQuickActionsProvider(
  */
 export function registerAllCodeLensProviders(
   context: vscode.ExtensionContext,
-  diffManager: DiffManager,
   editorToVerticalDiffCodeLens: Map<string, VerticalDiffCodeLens[]>,
-  config: ContinueConfig,
+  config: ContinueConfig | undefined,
 ) {
   if (verticalPerLineCodeLensProvider) {
     verticalPerLineCodeLensProvider.dispose();
@@ -99,6 +100,14 @@ export function registerAllCodeLensProviders(
     tutorialCodeLensDisposable.dispose();
   }
 
+  if (configJsonConverterCodeLensDisposable) {
+    configJsonConverterCodeLensDisposable.dispose();
+  }
+
+  if (downloadYamlExtensionCodeLensDisposable) {
+    downloadYamlExtensionCodeLensDisposable.dispose();
+  }
+
   const verticalDiffCodeLens = new providers.VerticalPerLineCodeLensProvider(
     editorToVerticalDiffCodeLens,
   );
@@ -113,20 +122,27 @@ export function registerAllCodeLensProviders(
     new providers.SuggestionsCodeLensProvider(),
   );
 
-  diffsCodeLensDisposable = registerCodeLensProvider(
+  configJsonConverterCodeLensDisposable = registerCodeLensProvider(
     "*",
-    new providers.DiffViewerCodeLensProvider(diffManager),
+    new providers.ConfigJsonConverterCodeLensProvider(),
   );
 
-  registerQuickActionsProvider(config, context);
-
-  subscribeToVSCodeQuickActionsSettings(() =>
-    registerQuickActionsProvider(config, context),
+  downloadYamlExtensionCodeLensDisposable = registerCodeLensProvider(
+    "yaml",
+    new providers.DownloadYamlExtensionCodeLensProvider(),
   );
+
+  if (config) {
+    registerQuickActionsProvider(config, context);
+
+    subscribeToVSCodeQuickActionsSettings(() =>
+      registerQuickActionsProvider(config, context),
+    );
+  }
 
   context.subscriptions.push(verticalPerLineCodeLensProvider);
   context.subscriptions.push(suggestionsCodeLensDisposable);
-  context.subscriptions.push(diffsCodeLensDisposable);
+  context.subscriptions.push(configJsonConverterCodeLensDisposable);
 
   return { verticalDiffCodeLens };
 }

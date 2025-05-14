@@ -90,7 +90,7 @@ declare global {
     requestOptions?: RequestOptions;
     promptTemplates?: Record<string, PromptTemplate>;
     templateMessages?: (messages: ChatMessage[]) => string;
-    writeLog?: (str: string) => Promise<void>;
+    llmLogger?: ILLMLogger;
     llmRequestHook?: (model: string, prompt: string) => any;
     apiKey?: string;
     apiBase?: string;
@@ -220,16 +220,8 @@ declare global {
   export interface SiteIndexingConfig {
     title: string;
     startUrl: string;
-    rootUrl?: string;
     maxDepth?: number;
     faviconUrl?: string;
-  }
-  
-  export interface SiteIndexingConfig {
-    startUrl: string;
-    rootUrl?: string;
-    title: string;
-    maxDepth?: number;
   }
   
   export interface IContextProvider {
@@ -241,10 +233,6 @@ declare global {
     ): Promise<ContextItem[]>;
   
     loadSubmenuItems(args: LoadSubmenuItemsArgs): Promise<ContextSubmenuItem[]>;
-  }
-  
-  export interface Checkpoint {
-    [filepath: string]: string;
   }
   
   export interface Session {
@@ -411,6 +399,7 @@ declare global {
     | "generated"
     | "calling"
     | "done"
+    | "errored"
     | "canceled";
   
   // Will exist only on "assistant" messages with tool calls
@@ -430,8 +419,6 @@ declare global {
     promptLogs?: PromptLog[];
     toolCallState?: ToolCallState;
     isGatheringContext?: boolean;
-    checkpoint?: Checkpoint;
-    isBeforeCheckpoint?: boolean;
   }
   
   export interface LLMFullCompletionOptions extends BaseCompletionOptions {
@@ -440,6 +427,94 @@ declare global {
   }
   
   export type ToastType = "info" | "error" | "warning";
+  
+  export interface LLMInteractionBase {
+    interactionId: string;
+    timestamp: number;
+  }
+  
+  export interface LLMInteractionStartChat extends LLMInteractionBase {
+    kind: "startChat";
+    messages: ChatMessage[];
+    options: CompletionOptions;
+  }
+  
+  export interface LLMInteractionStartComplete extends LLMInteractionBase {
+    kind: "startComplete";
+    prompt: string;
+    options: CompletionOptions;
+  }
+  
+  export interface LLMInteractionStartFim extends LLMInteractionBase {
+    kind: "startFim";
+    prefix: string;
+    suffix: string;
+    options: CompletionOptions;
+  }
+  
+  export interface LLMInteractionChunk extends LLMInteractionBase {
+    kind: "chunk";
+    chunk: string;
+  }
+  
+  export interface LLMInteractionMessage extends LLMInteractionBase {
+    kind: "message";
+    message: ChatMessage;
+  }
+  
+  export interface LLMInteractionEnd extends LLMInteractionBase {
+    promptTokens: number;
+    generatedTokens: number;
+    thinkingTokens: number;
+  }
+  
+  export interface LLMInteractionSuccess extends LLMInteractionEnd {
+    kind: "success";
+  }
+  
+  export interface LLMInteractionCancel extends LLMInteractionEnd {
+    kind: "cancel";
+  }
+  
+  export interface LLMInteractionError extends LLMInteractionEnd {
+    kind: "error";
+    name: string;
+    message: string;
+  }
+  
+  export type LLMInteractionItem =
+    | LLMInteractionStartChat
+    | LLMInteractionStartComplete
+    | LLMInteractionStartFim
+    | LLMInteractionChunk
+    | LLMInteractionMessage
+    | LLMInteractionSuccess
+    | LLMInteractionCancel
+    | LLMInteractionError;
+  
+  // When we log a LLM interaction, we want to add the interactionId and timestamp
+  // in the logger code, so we need a type that omits these members from *each*
+  // member of the union. This can be done by using the distributive behavior of
+  // conditional types in Typescript.
+  //
+  // www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
+  // https://stackoverflow.com/questions/57103834/typescript-omit-a-property-from-all-interfaces-in-a-union-but-keep-the-union-s
+  type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+    ? Omit<T, K>
+    : never;
+  
+  export type LLMInteractionItemDetails = DistributiveOmit<
+    LLMInteractionItem,
+    "interactionId" | "timestamp"
+  >;
+  
+  export interface ILLMInteractionLog {
+    logItem(item: LLMInteractionItemDetails): void;
+  }
+  
+  export interface ILLMLogger {
+    createInteractionLog(): ILLMInteractionLog;
+  }
   
   export interface LLMOptions {
     model: string;
@@ -454,7 +529,7 @@ declare global {
     template?: TemplateType;
     promptTemplates?: Record<string, PromptTemplate>;
     templateMessages?: (messages: ChatMessage[]) => string;
-    writeLog?: (str: string) => Promise<void>;
+    logger?: ILLMLogger;
     llmRequestHook?: (model: string, prompt: string) => any;
     apiKey?: string;
     aiGatewaySlug?: string;
@@ -578,9 +653,7 @@ declare global {
     remoteConfigServerUrl: string | undefined;
     remoteConfigSyncPeriod: number;
     userToken: string;
-    enableControlServerBeta: boolean;
     pauseCodebaseIndexOnStart: boolean;
-    enableDebugLogs: boolean;
   }
   
   export interface IDE {
@@ -607,8 +680,6 @@ declare global {
   
     getAvailableThreads(): Promise<Thread[]>;
   
-    listFolders(): Promise<string[]>;
-  
     getWorkspaceDirs(): Promise<string[]>;
   
     getWorkspaceConfigs(): Promise<ContinueRcJson[]>;
@@ -618,9 +689,6 @@ declare global {
     writeFile(path: string, contents: string): Promise<void>;
   
     showVirtualFile(title: string, contents: string): Promise<void>;
-  
-    getContinueDir(): Promise<string>;
-  
     openFile(path: string): Promise<void>;
   
     openUrl(url: string): Promise<void>;
@@ -638,13 +706,6 @@ declare global {
       startLine: number,
       endLine: number,
     ): Promise<void>;
-  
-    showDiff(
-      filepath: string,
-      newContents: string,
-      stepIndex: number,
-    ): Promise<void>;
-  
     getOpenFiles(): Promise<string[]>;
   
     getCurrentFile(): Promise<
@@ -689,8 +750,6 @@ declare global {
   
     // Callbacks
     onDidChangeActiveTextEditor(callback: (filepath: string) => void): void;
-  
-    pathSep(): Promise<string>;
   }
   
   // Slash Commands
@@ -731,7 +790,6 @@ declare global {
   
   type ContextProviderName =
     | "diff"
-    | "github"
     | "terminal"
     | "debugger"
     | "open"
@@ -777,7 +835,8 @@ declare global {
     | "llava"
     | "gemma"
     | "granite"
-    | "llama3";
+    | "llama3"
+    | "codestral";
   
   export interface RequestOptions {
     timeout?: number;
@@ -867,6 +926,7 @@ declare global {
     numThreads?: number;
     useMmap?: boolean;
     keepAlive?: number;
+    numGpu?: number;
     raw?: boolean;
     stream?: boolean;
     prediction?: Prediction;
@@ -894,7 +954,7 @@ declare global {
     cacheBehavior?: CacheBehavior;
   }
   
-  export interface EmbedOptions {
+  export interface JSONEmbedOptions {
     apiBase?: string;
     apiKey?: string;
     model?: string;
@@ -925,7 +985,6 @@ declare global {
   
   export interface TabAutocompleteOptions {
     disable: boolean;
-    useFileSuffix: boolean;
     maxPromptTokens: number;
     debounceDelay: number;
     maxSuffixPercentage: number;
@@ -970,7 +1029,6 @@ declare global {
     fontSize?: number;
     displayRawMarkdown?: boolean;
     showChatScrollbar?: boolean;
-    getChatTitles?: boolean;
     codeWrap?: boolean;
   }
   
@@ -982,18 +1040,11 @@ declare global {
     fixGrammar?: string;
   }
   
-  interface ModelRoles {
+  interface ExperimentalModelRoles {
     inlineEdit?: string;
     applyCodeBlock?: string;
     repoMapFileSelection?: string;
   }
-  
-  export type EditStatus =
-    | "not-started"
-    | "streaming"
-    | "accepting"
-    | "accepting:full-diff"
-    | "done";
   
   export type ApplyStateStatus =
     | "streaming" // Changes are being applied to the file
@@ -1050,7 +1101,7 @@ declare global {
   
   interface ExperimentalConfig {
     contextMenuPrompts?: ContextMenuConfig;
-    modelRoles?: ModelRoles;
+    modelRoles?: ExperimentalModelRoles;
     defaultContext?: DefaultContextProvider[];
     promptPath?: string;
   

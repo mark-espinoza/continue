@@ -1,13 +1,13 @@
 import { CubeIcon } from "@heroicons/react/24/outline";
-import { DEFAULT_CHAT_MODEL_CONFIG } from "core/config/default";
-import { useContext, useState } from "react";
-import { useDispatch } from "react-redux";
+import { FormEventHandler, useContext, useState } from "react";
 import { Button, Input, InputSubtext, lightGray } from "../..";
+import { useAuth } from "../../../context/Auth";
 import { IdeMessengerContext } from "../../../context/IdeMessenger";
 import { models } from "../../../pages/AddNewModel/configs/models";
 import { providers } from "../../../pages/AddNewModel/configs/providers";
+import { useAppDispatch } from "../../../redux/hooks";
+import { updateSelectedModelByRole } from "../../../redux/thunks";
 import AddModelButtonSubtext from "../../AddModelButtonSubtext";
-import { setDefaultModel } from "../../../redux/slices/configSlice";
 
 const { anthropic, mistral } = providers;
 const chatProvider = anthropic!;
@@ -15,7 +15,7 @@ const autocompleteProvider = mistral!;
 
 const {
   claude35Sonnet: chatModel,
-  claude3Haiku: repoMapModel,
+  claude35Haiku: repoMapModel,
   codestral: autocompleteModel,
 } = models;
 
@@ -26,14 +26,15 @@ interface BestExperienceConfigFormProps {
 function BestExperienceConfigForm({
   onComplete,
 }: BestExperienceConfigFormProps) {
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
+  const { selectedProfile } = useAuth();
 
   const ideMessenger = useContext(IdeMessengerContext);
 
   const [autocompleteApiKey, setAutocompleteApiKey] = useState("");
   const [chatApiKey, setChatApiKey] = useState("");
 
-  async function handleSubmit(e) {
+  const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
 
     const chatModelConfig = {
@@ -57,15 +58,19 @@ function BestExperienceConfigForm({
       apiKey: autocompleteApiKey,
     };
 
-    ideMessenger.post("config/deleteModel", {
-      title: DEFAULT_CHAT_MODEL_CONFIG.title,
-    });
     ideMessenger.post("config/addModel", { model: chatModelConfig });
     ideMessenger.post("config/addModel", {
       model: repoMapConfig,
       role: "repoMapFileSelection",
     });
-    dispatch(setDefaultModel({ title: chatModelConfig.title, force: true }));
+
+    dispatch(
+      updateSelectedModelByRole({
+        selectedProfile,
+        role: "chat",
+        modelTitle: chatModelConfig.title,
+      }),
+    );
 
     if (!!autocompleteApiKey) {
       await ideMessenger.request("addAutocompleteModel", {
@@ -74,7 +79,7 @@ function BestExperienceConfigForm({
     }
 
     onComplete();
-  }
+  };
 
   return (
     <form onSubmit={handleSubmit}>
@@ -83,7 +88,7 @@ function BestExperienceConfigForm({
           <div className="mb-1 flex flex-row justify-between gap-4 text-lg font-bold">
             <label className="text-lg font-bold">Chat model</label>
             <div
-              className="flex hidden items-center justify-end text-xs font-semibold sm:flex"
+              className="hidden items-center justify-end text-xs font-semibold sm:flex"
               style={{ color: lightGray }}
             >
               <CubeIcon className="mr-1 h-4 w-4 flex-shrink-0" />
@@ -99,6 +104,7 @@ function BestExperienceConfigForm({
               placeholder="Enter your Anthropic API Key"
               value={chatApiKey}
               onChange={(e) => setChatApiKey(e.target.value)}
+              data-testid="best-chat-api-key-input"
             />
             <InputSubtext>
               <a
@@ -133,6 +139,7 @@ function BestExperienceConfigForm({
               placeholder="Enter your Mistral API Key"
               value={autocompleteApiKey}
               onChange={(e) => setAutocompleteApiKey(e.target.value)}
+              data-testid="best-autocomplete-api-key-input"
             />
             <InputSubtext>
               <a

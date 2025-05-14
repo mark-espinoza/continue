@@ -8,27 +8,26 @@ const {
   execCmdSync,
   autodetectPlatformAndArch,
 } = require("../scripts/util");
+const { downloadRipgrep } = require("./utils/ripgrep");
+const { ALL_TARGETS, TARGET_TO_LANCEDB } = require("./utils/targets");
 
-// Clean slate
 const bin = path.join(__dirname, "bin");
 const out = path.join(__dirname, "out");
 const build = path.join(__dirname, "build");
-rimrafSync(bin);
-rimrafSync(out);
-rimrafSync(build);
-rimrafSync(path.join(__dirname, "tmp"));
-fs.mkdirSync(bin);
-fs.mkdirSync(out);
-fs.mkdirSync(build);
+
+function cleanSlate() {
+  // Clean slate
+  rimrafSync(bin);
+  rimrafSync(out);
+  rimrafSync(build);
+  rimrafSync(path.join(__dirname, "tmp"));
+  fs.mkdirSync(bin);
+  fs.mkdirSync(out);
+  fs.mkdirSync(build);
+}
 
 const esbuildOutputFile = "out/index.js";
-let targets = [
-  "darwin-x64",
-  "darwin-arm64",
-  "linux-x64",
-  "linux-arm64",
-  "win32-x64",
-];
+let targets = [...ALL_TARGETS];
 
 const [currentPlatform, currentArch] = autodetectPlatformAndArch();
 
@@ -47,14 +46,37 @@ for (let i = 2; i < process.argv.length; i++) {
   }
 }
 
-const targetToLanceDb = {
-  "darwin-arm64": "@lancedb/vectordb-darwin-arm64",
-  "darwin-x64": "@lancedb/vectordb-darwin-x64",
-  "linux-arm64": "@lancedb/vectordb-linux-arm64-gnu",
-  "linux-x64": "@lancedb/vectordb-linux-x64-gnu",
-  "win32-x64": "@lancedb/vectordb-win32-x64-msvc",
-  "win32-arm64": "@lancedb/vectordb-win32-x64-msvc", // they don't have a win32-arm64 build
-};
+// Bundles the extension into one file
+async function buildWithEsbuild() {
+  console.log("[info] Building with esbuild...");
+  await esbuild.build({
+    entryPoints: ["src/index.ts"],
+    bundle: true,
+    outfile: esbuildOutputFile,
+    external: [
+      "esbuild",
+      "./xhr-sync-worker.js",
+      "llamaTokenizerWorkerPool.mjs",
+      "tiktokenWorkerPool.mjs",
+      "vscode",
+      "./index.node",
+    ],
+    format: "cjs",
+    platform: "node",
+    sourcemap: true,
+    minify: true,
+    treeShaking: true,
+    loader: {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      ".node": "file",
+    },
+
+    // To allow import.meta.path for transformers.js
+    // https://github.com/evanw/esbuild/issues/1492#issuecomment-893144483
+    inject: ["./importMetaUrl.js"],
+    define: { "import.meta.url": "importMetaUrl" },
+  });
+}
 
 async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
   console.log(`Copying ${packageName} to ${toCopy}`);
@@ -117,13 +139,54 @@ async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
   }
 }
 
+/**
+ * Downloads and installs ripgrep binaries for the specified target
+ *
+ * @param {string} target - Target platform-arch (e.g., 'darwin-x64')
+ * @param {string} targetDir - Directory to install ripgrep to
+ * @returns {Promise<void>}
+ */
+async function downloadRipgrepForTarget(target, targetDir) {
+  console.log(`[info] Downloading ripgrep for ${target}...`);
+  try {
+    await downloadRipgrep(target, targetDir);
+    console.log(`[info] Successfully installed ripgrep for ${target}`);
+  } catch (error) {
+    console.error(`[error] Failed to download ripgrep for ${target}:`, error);
+    throw error;
+  }
+}
+
 (async () => {
+  if (esbuildOnly) {
+    await buildWithEsbuild();
+    return;
+  }
+
+  cleanSlate();
+
+  // Informs of where to look for node_sqlite3.node https://www.npmjs.com/package/bindings#:~:text=The%20searching%20for,file%20is%20found
+  // This is only needed for our `pkg` command at build time
+  fs.writeFileSync(
+    "out/package.json",
+    JSON.stringify(
+      {
+        name: "binary",
+        version: "1.0.0",
+        author: "Continue Dev, Inc",
+        license: "Apache-2.0",
+      },
+      undefined,
+      2,
+    ),
+  );
+
   console.log("[info] Downloading prebuilt lancedb...");
   for (const target of targets) {
-    if (targetToLanceDb[target]) {
+    if (TARGET_TO_LANCEDB[target]) {
       console.log(`[info] Downloading for ${target}...`);
       await installNodeModuleInTempDirAndCopyToCurrent(
-        targetToLanceDb[target],
+        TARGET_TO_LANCEDB[target],
         "@lancedb",
       );
     }
@@ -176,33 +239,7 @@ async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
     fs.rmSync(assetPath, { force: true });
   }
 
-  // Bundles the extension into one file
-  console.log("[info] Building with esbuild...");
-  await esbuild.build({
-    entryPoints: ["src/index.ts"],
-    bundle: true,
-    outfile: esbuildOutputFile,
-    external: [
-      "esbuild",
-      "./xhr-sync-worker.js",
-      "llamaTokenizerWorkerPool.mjs",
-      "tiktokenWorkerPool.mjs",
-      "vscode",
-      "./index.node",
-    ],
-    format: "cjs",
-    platform: "node",
-    sourcemap: true,
-    loader: {
-      // eslint-disable-next-line @typescript-eslint/naming-convention
-      ".node": "file",
-    },
-
-    // To allow import.meta.path for transformers.js
-    // https://github.com/evanw/esbuild/issues/1492#issuecomment-893144483
-    inject: ["./importMetaUrl.js"],
-    define: { "import.meta.url": "importMetaUrl" },
-  });
+  await buildWithEsbuild();
 
   // Copy over any worker files
   fs.cpSync(
@@ -215,41 +252,28 @@ async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
     "out/llamaTokenizerWorkerPool.mjs",
   );
 
-  if (esbuildOnly) {
-    return;
-  }
-
   console.log("[info] Building binaries with pkg...");
   for (const target of targets) {
     const targetDir = `bin/${target}`;
     fs.mkdirSync(targetDir, { recursive: true });
     console.log(`[info] Building ${target}...`);
     execCmdSync(
-      `npx pkg --no-bytecode --public-packages "*" --public pkgJson/${target} --out-path ${targetDir}`,
+      `npx pkg --no-bytecode --public-packages "*" --public --compress GZip pkgJson/${target} --out-path ${targetDir}`,
     );
 
     // Download and unzip prebuilt sqlite3 binary for the target
     console.log("[info] Downloading node-sqlite3");
-    const downloadUrl = `https://github.com/TryGhost/node-sqlite3/releases/download/v5.1.7/sqlite3-v5.1.7-napi-v6-${
-      target === "win32-arm64" ? "win32-ia32" : target
-    }.tar.gz`;
+
+    const downloadUrl =
+      // node-sqlite3 doesn't have a pre-built binary for win32-arm64
+      target === "win32-arm64"
+        ? "https://continue-server-binaries.s3.us-west-1.amazonaws.com/win32-arm64/node_sqlite3.tar.gz"
+        : `https://github.com/TryGhost/node-sqlite3/releases/download/v5.1.7/sqlite3-v5.1.7-napi-v6-${
+            target
+          }.tar.gz`;
+
     execCmdSync(`curl -L -o ${targetDir}/build.tar.gz ${downloadUrl}`);
     execCmdSync(`cd ${targetDir} && tar -xvzf build.tar.gz`);
-
-    // Informs of where to look for node_sqlite3.node https://www.npmjs.com/package/bindings#:~:text=The%20searching%20for,file%20is%20found
-    fs.writeFileSync(
-      `${targetDir}/package.json`,
-      JSON.stringify(
-        {
-          name: "binary",
-          version: "1.0.0",
-          author: "Continue Dev, Inc",
-          license: "Apache-2.0",
-        },
-        undefined,
-        2,
-      ),
-    );
 
     // Copy to build directory for testing
     try {
@@ -270,20 +294,30 @@ async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
     // copy @lancedb to bin folders
     console.log("[info] Copying @lancedb files to bin");
     fs.copyFileSync(
-      `node_modules/${targetToLanceDb[target]}/index.node`,
+      `node_modules/${TARGET_TO_LANCEDB[target]}/index.node`,
       `${targetDir}/index.node`,
     );
+
+    // Download and install ripgrep for the target
+    await downloadRipgrepForTarget(target, targetDir);
+
+    // Informs the `continue-binary` of where to look for node_sqlite3.node
+    // https://www.npmjs.com/package/bindings#:~:text=The%20searching%20for,file%20is%20found
+    fs.writeFileSync(`${targetDir}/package.json`, "");
   }
 
+  // Cleanup - this is needed when running locally
+  fs.rmSync("out/package.json");
+
   const pathsToVerify = [];
-  for (target of targets) {
+  for (const target of targets) {
     const exe = target.startsWith("win") ? ".exe" : "";
     const targetDir = `bin/${target}`;
     pathsToVerify.push(
       `${targetDir}/continue-binary${exe}`,
       `${targetDir}/index.node`, // @lancedb
-      "package.json", // Informs of where to look for node_sqlite3.node https://www.npmjs.com/package/bindings#:~:text=The%20searching%20for,file%20is%20found
       `${targetDir}/build/Release/node_sqlite3.node`,
+      `${targetDir}/rg${exe}`, // ripgrep binary
     );
   }
 

@@ -1,13 +1,20 @@
 const fs = require("fs");
-const ncp = require("ncp").ncp;
 const path = require("path");
+
+const ncp = require("ncp").ncp;
 const { rimrafSync } = require("rimraf");
+
 const {
   validateFilesPresent,
   execCmdSync,
   autodetectPlatformAndArch,
 } = require("../../../scripts/util/index");
-const { copyConfigSchema } = require("./utils");
+
+const {
+  copyConfigSchema,
+  writeBuildTimestamp,
+  generateConfigYamlSchema,
+} = require("./utils");
 
 // Clear folders that will be packaged to ensure clean slate
 rimrafSync(path.join(__dirname, "..", "bin"));
@@ -46,8 +53,22 @@ console.log("[info] Using target: ", target);
 
 const exe = os === "win32" ? ".exe" : "";
 
-(async () => {
+const isInGitHubAction = !!process.env.GITHUB_ACTIONS;
+
+const isArmTarget =
+  target === "darwin-arm64" ||
+  target === "linux-arm64" ||
+  target === "win32-arm64";
+
+const isWinTarget = target?.startsWith("win");
+const isLinuxTarget = target?.startsWith("linux");
+const isMacTarget = target?.startsWith("darwin");
+
+void (async () => {
   console.log("[info] Packaging extension for target ", target);
+
+  // Generate and copy over config-yaml-schema.json
+  generateConfigYamlSchema();
 
   // Copy config schemas to intellij
   copyConfigSchema();
@@ -56,6 +77,9 @@ const exe = os === "win32" ? ".exe" : "";
     // This is sometimes run from root dir instead (e.g. in VS Code tasks)
     process.chdir("extensions/vscode");
   }
+
+  // Make sure we have an initial timestamp file
+  writeBuildTimestamp();
 
   // Install node_modules //
   execCmdSync("npm install");
@@ -66,7 +90,7 @@ const exe = os === "win32" ? ".exe" : "";
   execCmdSync("npm install");
   console.log("[info] npm install in gui completed");
 
-  if (ghAction()) {
+  if (isInGitHubAction) {
     execCmdSync("npm run build");
   }
 
@@ -105,12 +129,6 @@ const exe = os === "win32" ? ".exe" : "";
   }
   fs.copyFileSync("tmp_index.html", indexHtmlPath);
   fs.unlinkSync("tmp_index.html");
-
-  // Copy over other misc. files
-  fs.copyFileSync(
-    "../extensions/vscode/gui/onigasm.wasm",
-    path.join(intellijExtensionWebviewPath, "onigasm.wasm"),
-  );
 
   console.log("[info] Copied gui build to JetBrains extension");
 
@@ -222,6 +240,7 @@ const exe = os === "win32" ? ".exe" : "";
     "../../../core/llm/llamaTokenizerWorkerPool.mjs",
     "../../../core/llm/llamaTokenizer.mjs",
     "../../../core/llm/tiktokenWorkerPool.mjs",
+    "../../../core/util/start_ollama.sh",
   ];
 
   for (const f of filesToCopy) {
@@ -260,22 +279,6 @@ const exe = os === "win32" ? ".exe" : "";
       },
     );
   });
-
-  function ghAction() {
-    return !!process.env.GITHUB_ACTIONS;
-  }
-
-  function isArm() {
-    return (
-      target === "darwin-arm64" ||
-      target === "linux-arm64" ||
-      target === "win32-arm64"
-    );
-  }
-
-  function isWin() {
-    return target?.startsWith("win");
-  }
 
   async function installNodeModuleInTempDirAndCopyToCurrent(
     packageName,
@@ -340,42 +343,40 @@ const exe = os === "win32" ? ".exe" : "";
   }
 
   // GitHub Actions doesn't support ARM, so we need to download pre-saved binaries
-  if (ghAction() && isArm()) {
-    // sqlite3
-    if (!isWin()) {
-      // Neither lancedb nor sqlite3 have pre-built windows arm64 binaries
+  // 02/07/25 - the above comment is out of date, there is now support for ARM runners on GitHub Actions
+  if (isInGitHubAction && isArmTarget) {
+    // lancedb binary
+    const packageToInstall = {
+      "darwin-arm64": "@lancedb/vectordb-darwin-arm64",
+      "linux-arm64": "@lancedb/vectordb-linux-arm64-gnu",
+      "win32-arm64": "@lancedb/vectordb-win32-arm64-msvc",
+    }[target];
+    console.log(
+      "[info] Downloading pre-built lancedb binary: " + packageToInstall,
+    );
 
-      // lancedb binary
-      const packageToInstall = {
-        "darwin-arm64": "@lancedb/vectordb-darwin-arm64",
-        "linux-arm64": "@lancedb/vectordb-linux-arm64-gnu",
-      }[target];
-      console.log(
-        "[info] Downloading pre-built lancedb binary: " + packageToInstall,
-      );
+    await installNodeModuleInTempDirAndCopyToCurrent(
+      packageToInstall,
+      "@lancedb",
+    );
 
-      await installNodeModuleInTempDirAndCopyToCurrent(
-        packageToInstall,
-        "@lancedb",
-      );
-
-      // Replace the installed with pre-built
-      console.log("[info] Downloading pre-built sqlite3 binary");
-      rimrafSync("../../core/node_modules/sqlite3/build");
-      const downloadUrl = {
-        "darwin-arm64":
-          "https://github.com/TryGhost/node-sqlite3/releases/download/v5.1.7/sqlite3-v5.1.7-napi-v6-darwin-arm64.tar.gz",
-        "linux-arm64":
-          "https://github.com/TryGhost/node-sqlite3/releases/download/v5.1.7/sqlite3-v5.1.7-napi-v3-linux-arm64.tar.gz",
-      }[target];
-      execCmdSync(
-        `curl -L -o ../../core/node_modules/sqlite3/build.tar.gz ${downloadUrl}`,
-      );
-      execCmdSync(
-        "cd ../../core/node_modules/sqlite3 && tar -xvzf build.tar.gz",
-      );
-      fs.unlinkSync("../../core/node_modules/sqlite3/build.tar.gz");
-    }
+    // Replace the installed with pre-built
+    console.log("[info] Downloading pre-built sqlite3 binary");
+    rimrafSync("../../core/node_modules/sqlite3/build");
+    const downloadUrl = {
+      "darwin-arm64":
+        "https://github.com/TryGhost/node-sqlite3/releases/download/v5.1.7/sqlite3-v5.1.7-napi-v6-darwin-arm64.tar.gz",
+      "linux-arm64":
+        "https://github.com/TryGhost/node-sqlite3/releases/download/v5.1.7/sqlite3-v5.1.7-napi-v3-linux-arm64.tar.gz",
+      // node-sqlite3 doesn't have a pre-built binary for win32-arm64
+      "win32-arm64":
+        "https://continue-server-binaries.s3.us-west-1.amazonaws.com/win32-arm64/node_sqlite3.tar.gz",
+    }[target];
+    execCmdSync(
+      `curl -L -o ../../core/node_modules/sqlite3/build.tar.gz ${downloadUrl}`,
+    );
+    execCmdSync("cd ../../core/node_modules/sqlite3 && tar -xvzf build.tar.gz");
+    fs.unlinkSync("../../core/node_modules/sqlite3/build.tar.gz");
 
     // Download and unzip esbuild
     console.log("[info] Downloading pre-built esbuild binary");
@@ -463,6 +464,9 @@ const exe = os === "win32" ? ".exe" : "";
     ),
   );
 
+  // delete esbuild/bin because platform-specific @esbuild is downloaded
+  fs.rmdirSync(`out/node_modules/esbuild/bin`, { recursive: true });
+
   console.log(`[info] Copied ${NODE_MODULES_TO_COPY.join(", ")}`);
 
   // Copy over any worker files
@@ -482,9 +486,9 @@ const exe = os === "win32" ? ".exe" : "";
     // onnx runtime bindngs
     `bin/napi-v3/${os}/${arch}/onnxruntime_binding.node`,
     `bin/napi-v3/${os}/${arch}/${
-      os === "darwin"
+      isMacTarget
         ? "libonnxruntime.1.14.0.dylib"
-        : os === "linux"
+        : isLinuxTarget
           ? "libonnxruntime.so.1.14.0"
           : "onnxruntime.dll"
     }`,
@@ -527,12 +531,7 @@ const exe = os === "win32" ? ".exe" : "";
           ? "win32-x64/esbuild.exe"
           : `${target}/bin/esbuild`
     }`,
-    `out/node_modules/@lancedb/vectordb-${
-      os === "win32"
-        ? "win32-x64-msvc"
-        : `${target}${os === "linux" ? "-gnu" : ""}`
-    }/index.node`,
+    `out/node_modules/@lancedb/vectordb-${target}${isWinTarget ? "-msvc" : ""}${isLinuxTarget ? "-gnu" : ""}/index.node`,
     `out/node_modules/esbuild/lib/main.js`,
-    `out/node_modules/esbuild/bin/esbuild`,
   ]);
 })();

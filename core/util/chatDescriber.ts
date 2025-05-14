@@ -1,13 +1,15 @@
 import { ILLM, LLMFullCompletionOptions } from "..";
 
-import { removeQuotesAndEscapes, removeCodeBlocksAndTrim } from ".";
+import { removeCodeBlocksAndTrim, removeQuotesAndEscapes } from ".";
 
-import type { IMessenger } from "../protocol/messenger";
 import type { FromCoreProtocol, ToCoreProtocol } from "../protocol";
+import type { IMessenger } from "../protocol/messenger";
+import { renderChatMessage } from "./messageContent";
 
 export class ChatDescriber {
+  static maxTokens = 12;
   static prompt: string | undefined =
-    "Given the following... please reply with a short summary that is 4-12 words in length, you should summarize what the user is asking for OR what the user is trying to accomplish. You should only respond with the summary, no additional text or explanation, you don't need ending punctuation.\n\n";
+    "Given the following... please reply with a title for the chat that is 3-4 words in length, all words used should be directly related to the content of the chat, avoid using verbs unless they are directly related to the content of the chat, no additional text or explanation, you don't need ending punctuation.\n\n";
   static messenger: IMessenger<ToCoreProtocol, FromCoreProtocol>;
 
   static async describe(
@@ -26,7 +28,7 @@ export class ChatDescriber {
       return;
     }
 
-    completionOptions.maxTokens = 6;
+    completionOptions.maxTokens = ChatDescriber.maxTokens;
 
     // Prompt the user's current LLM for the title
     const titleResponse = await model.chat(
@@ -41,7 +43,7 @@ export class ChatDescriber {
     );
 
     // Set the title
-    return removeQuotesAndEscapes(titleResponse.content.toString());
+    return removeQuotesAndEscapes(renderChatMessage(titleResponse));
   }
 
   //   // TODO: Allow the user to manually set specific/tailored prompts to generate their titles

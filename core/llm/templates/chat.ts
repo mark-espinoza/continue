@@ -93,6 +93,15 @@ function llama2TemplateMessages(msgs: ChatMessage[]): string {
   return prompt;
 }
 
+// Llama2 template with added \n to prevent Codestral from continuing user message
+function codestralTemplateMessages(msgs: ChatMessage[]): string {
+    let template = llama2TemplateMessages(msgs);
+    if (template.length === 0) {
+        return template;
+    }
+    return template + "\n";
+}
+
 function anthropicTemplateMessages(messages: ChatMessage[]): string {
   const HUMAN_PROMPT = "\n\nHuman:";
   const AI_PROMPT = "\n\nAssistant:";
@@ -156,7 +165,7 @@ function deepseekTemplateMessages(msgs: ChatMessage[]): string {
   let prompt = "";
   let system: string | null = null;
   prompt +=
-    "You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and you only answer questions related to computer science. For politically sensitive questions, security and privacy issues, and other non-computer science questions, you will refuse to answer.\n";
+    "You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and your  role is to assist with questions related to computer science. For politically sensitive questions, security and privacy issues, and other non-computer science questions, you will not answer.\n";
   if (msgs[0].role === "system") {
     system = renderChatMessage(msgs.shift()!);
   }
@@ -300,4 +309,5 @@ export {
   templateAlpacaMessages,
   xWinCoderTemplateMessages,
   zephyrTemplateMessages,
+  codestralTemplateMessages,
 };

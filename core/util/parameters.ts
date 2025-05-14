@@ -2,11 +2,11 @@ import { TabAutocompleteOptions } from "../index.js";
 
 export const DEFAULT_AUTOCOMPLETE_OPTS: TabAutocompleteOptions = {
   disable: false,
-  useFileSuffix: true,
   maxPromptTokens: 1024,
   prefixPercentage: 0.3,
   maxSuffixPercentage: 0.2,
   debounceDelay: 350,
+  modelTimeout: 150,
   multilineCompletions: "auto",
   // @deprecated TO BE REMOVED
   slidingWindowPrefixPercentage: 0.75,
@@ -19,6 +19,10 @@ export const DEFAULT_AUTOCOMPLETE_OPTS: TabAutocompleteOptions = {
   useImports: true,
   transform: true,
   showWhateverWeHaveAtXMs: 300,
+  experimental_includeClipboard: true,
+  experimental_includeRecentlyVisitedRanges: true,
+  experimental_includeRecentlyEditedRanges: true,
+  experimental_includeDiff: true,
 };
 
 export const COUNT_COMPLETION_REJECTED_AFTER = 10_000;

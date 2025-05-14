@@ -1,18 +1,30 @@
 import {
+  ChatMessage,
+  DiffLine,
+  ILLM,
+  Prediction,
+  RuleWithSource,
+  ToolResultChatMessage,
+  UserChatMessage,
+} from "../";
+import {
   filterCodeBlockLines,
   filterEnglishLinesAtEnd,
   filterEnglishLinesAtStart,
   filterLeadingAndTrailingNewLineInsertion,
+  removeTrailingWhitespace,
   skipLines,
   stopAtLines,
-} from "../autocomplete/filtering/streamTransforms/lineStream.js";
-import { streamDiff } from "../diff/streamDiff.js";
-import { streamLines } from "../diff/util.js";
-import { ChatMessage, DiffLine, ILLM, Prediction } from "../index.js";
-import { gptEditPrompt } from "../llm/templates/edit.js";
-import { Telemetry } from "../util/posthog.js";
+} from "../autocomplete/filtering/streamTransforms/lineStream";
+import { streamDiff } from "../diff/streamDiff";
+import { streamLines } from "../diff/util";
+import { getSystemMessageWithRules } from "../llm/rules/getSystemMessageWithRules";
+import { gptEditPrompt } from "../llm/templates/edit";
+import { findLast } from "../util/findLast";
+import { Telemetry } from "../util/posthog";
+import { recursiveStream } from "./recursiveStream";
 
-function constructPrompt(
+function constructEditPrompt(
   prefix: string,
   highlighted: string,
   suffix: string,
@@ -46,15 +58,27 @@ function modelIsInept(model: string): boolean {
   return !(model.includes("gpt") || model.includes("claude"));
 }
 
-export async function* streamDiffLines(
-  prefix: string,
-  highlighted: string,
-  suffix: string,
-  llm: ILLM,
-  input: string,
-  language: string | undefined,
-  onlyOneInsertion?: boolean,
-): AsyncGenerator<DiffLine> {
+export async function* streamDiffLines({
+  prefix,
+  highlighted,
+  suffix,
+  llm,
+  input,
+  language,
+  onlyOneInsertion,
+  overridePrompt,
+  rulesToInclude,
+}: {
+  prefix: string;
+  highlighted: string;
+  suffix: string;
+  llm: ILLM;
+  input: string;
+  language: string | undefined;
+  onlyOneInsertion: boolean;
+  overridePrompt: ChatMessage[] | undefined;
+  rulesToInclude: RuleWithSource[] | undefined;
+}): AsyncGenerator<DiffLine> {
   void Telemetry.capture(
     "inlineEdit",
     {
@@ -76,17 +100,56 @@ export async function* streamDiffLines(
     oldLines = [];
   }
 
-  // Trim end of oldLines, otherwise we have trailing \r on every line for CRLF files
-  oldLines = oldLines.map((line) => line.trimEnd());
+  // Defaults to creating an edit prompt
+  // For apply can be overridden with simply apply prompt
+  let prompt =
+    overridePrompt ??
+    constructEditPrompt(prefix, highlighted, suffix, llm, input, language);
 
-  const prompt = constructPrompt(
-    prefix,
-    highlighted,
-    suffix,
-    llm,
-    input,
-    language,
-  );
+  // Rules can be included with edit prompt
+  // If any rules are present this will result in using chat instead of legacy completion
+  const systemMessage = rulesToInclude
+    ? getSystemMessageWithRules({
+        rules: rulesToInclude,
+        userMessage:
+          typeof prompt === "string"
+            ? ({
+                role: "user",
+                content: prompt,
+              } as UserChatMessage)
+            : (findLast(
+                prompt,
+                (msg) => msg.role === "user" || msg.role === "tool",
+              ) as UserChatMessage | ToolResultChatMessage | undefined),
+        baseSystemMessage: undefined,
+      })
+    : undefined;
+
+  if (systemMessage) {
+    if (typeof prompt === "string") {
+      prompt = [
+        {
+          role: "system",
+          content: systemMessage,
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ];
+    } else {
+      const curSysMsg = prompt.find((msg) => msg.role === "system");
+      if (curSysMsg) {
+        curSysMsg.content = systemMessage + "\n\n" + curSysMsg.content;
+      } else {
+        prompt.unshift({
+          role: "system",
+          content: systemMessage,
+        });
+      }
+    }
+  }
+
   const inept = modelIsInept(llm.model);
 
   const prediction: Prediction = {
@@ -94,15 +157,7 @@ export async function* streamDiffLines(
     content: highlighted,
   };
 
-  const completion =
-    typeof prompt === "string"
-      ? llm.streamComplete(prompt, new AbortController().signal, {
-          raw: true,
-          prediction,
-        })
-      : llm.streamChat(prompt, new AbortController().signal, {
-          prediction,
-        });
+  const completion = recursiveStream(llm, prompt, prediction);
 
   let lines = streamLines(completion);
 
@@ -110,6 +165,7 @@ export async function* streamDiffLines(
   lines = filterCodeBlockLines(lines);
   lines = stopAtLines(lines, () => {});
   lines = skipLines(lines);
+  lines = removeTrailingWhitespace(lines);
   if (inept) {
     // lines = fixCodeLlamaFirstLineIndentation(lines);
     lines = filterEnglishLinesAtEnd(lines);

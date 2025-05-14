@@ -1,6 +1,7 @@
 import {
   filterLeadingAndTrailingNewLineInsertion,
   filterLeadingNewline,
+  removeTrailingWhitespace,
   stopAtLines,
 } from "../../autocomplete/filtering/streamTransforms/lineStream.js";
 import { streamDiff } from "../../diff/streamDiff.js";
@@ -15,7 +16,6 @@ export async function* streamLazyApply(
   filename: string,
   newCode: string,
   llm: ILLM,
-  fastLlm: ILLM,
 ): AsyncGenerator<DiffLine> {
   const promptFactory = lazyApplyPromptForModel(llm.model, llm.providerName);
   if (!promptFactory) {
@@ -23,7 +23,10 @@ export async function* streamLazyApply(
   }
 
   const promptMessages = promptFactory(oldCode, filename, newCode);
-  const lazyCompletion = llm.streamChat(promptMessages, new AbortController().signal);
+  const lazyCompletion = llm.streamChat(
+    promptMessages,
+    new AbortController().signal,
+  );
 
   // Do find and replace over the lazy edit response
   async function* replacementFunction(
@@ -35,7 +38,7 @@ export async function* streamLazyApply(
       oldCode,
       linesBefore,
       linesAfter,
-      fastLlm,
+      llm,
     )) {
       yield line;
     }
@@ -46,6 +49,7 @@ export async function* streamLazyApply(
   // lazyCompletionLines = filterEnglishLinesAtStart(lazyCompletionLines);
   lazyCompletionLines = stopAtLines(lazyCompletionLines, () => {}, ["```"]);
   lazyCompletionLines = filterLeadingNewline(lazyCompletionLines);
+  lazyCompletionLines = removeTrailingWhitespace(lazyCompletionLines);
 
   // Fill in unchanged code
   let lines = streamFillUnchangedCode(

@@ -1,15 +1,15 @@
 import fetch from "node-fetch";
 
+import { contextProviderClassFromName } from ".";
 import {
   ContextProviderExtras,
   ContextProviderWithParams,
   IContextProvider,
 } from "../..";
 import { ConfigHandler } from "../../config/ConfigHandler";
-import { contextProviderClassFromName } from ".";
-import { ControlPlaneClient } from "../../control-plane/client";
-import FileSystemIde from "../../util/filesystem";
+import { LLMLogger } from "../../llm/logger";
 import { TEST_DIR } from "../../test/testDir";
+import FileSystemIde from "../../util/filesystem";
 
 const CONTEXT_PROVIDERS_TO_TEST: ContextProviderWithParams[] = [
   { name: "diff", params: {} },
@@ -27,22 +27,26 @@ async function getContextProviderExtras(
 ): Promise<ContextProviderExtras> {
   const ide = new FileSystemIde(TEST_DIR);
   const ideSettingsPromise = ide.getIdeSettings();
+  const llmLogger = new LLMLogger();
   const configHandler = new ConfigHandler(
     ide,
     ideSettingsPromise,
-    async (text) => {},
-    new ControlPlaneClient(Promise.resolve(undefined)),
+    llmLogger,
+    Promise.resolve(undefined),
   );
-  const config = await configHandler.loadConfig();
+  const { config } = await configHandler.loadConfig();
+  if (!config) {
+    throw new Error("Config not found");
+  }
 
   return {
     fullInput,
     ide,
     config,
-    embeddingsProvider: config.embeddingsProvider,
+    embeddingsProvider: config.selectedModelByRole.embed,
     fetch: fetch,
-    llm: config.models[0],
-    reranker: config.reranker,
+    llm: config.modelsByRole.chat[0],
+    reranker: config.selectedModelByRole.rerank,
     selectedCode: [],
   };
 }
