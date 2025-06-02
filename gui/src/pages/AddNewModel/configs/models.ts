@@ -423,6 +423,33 @@ export const models: { [key: string]: ModelPackage } = {
     ],
     isOpenSource: true,
   },
+  llama3170bTrial: {
+    title: "Codellama 70b (Free Trial)",
+    description:
+      "The best code model from Meta, fine-tuned for code generation and conversation",
+    refUrl: "",
+    params: {
+      title: "CodeLlama-70b",
+      model: "codellama-70b",
+      contextLength: 4096,
+    },
+    icon: "meta.png",
+    providerOptions: ["free-trial"],
+    isOpenSource: false,
+  },
+  llama31405bTrial: {
+    title: "Llama3.1 405b (Free Trial)",
+    description: "The latest Llama model from Meta, fine-tuned for chat",
+    refUrl: "",
+    params: {
+      title: "Llama3.1-405b",
+      model: "llama3.1-405b",
+      contextLength: 8192,
+    },
+    icon: "meta.png",
+    providerOptions: ["free-trial"],
+    isOpenSource: false,
+  },
   mixtralTrial: {
     title: "Mixtral (Free Trial)",
     description:
@@ -434,7 +461,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 4096,
     },
     icon: "mistral.png",
-    providerOptions: ["groq"],
+    providerOptions: ["free-trial", "groq"],
     isOpenSource: false,
   },
   llama38bChat: {
@@ -460,7 +487,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 8192,
     },
     icon: "meta.png",
-    providerOptions: ["groq", "askSage"],
+    providerOptions: ["groq"],
     isOpenSource: false,
   },
   llama318bChat: {
@@ -698,7 +725,13 @@ export const models: { [key: string]: ModelPackage } = {
       model: "phind-codellama-34b",
       contextLength: 4096,
     },
-    providerOptions: ["ollama", "lmstudio", "llama.cpp", "replicate"],
+    providerOptions: [
+      "ollama",
+      "lmstudio",
+      "llama.cpp",
+      "replicate",
+      "free-trial",
+    ],
     isOpenSource: true,
   },
   codestral: {
@@ -788,7 +821,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 32000,
     },
     icon: "mistral.png",
-    providerOptions: ["mistral", "askSage"],
+    providerOptions: ["mistral"],
     isOpenSource: false,
   },
   mistralNemo: {
@@ -826,7 +859,7 @@ export const models: { [key: string]: ModelPackage } = {
       apiKey: "<API_KEY>",
     },
     icon: "gemini.png",
-    providerOptions: ["gemini", "askSage"],
+    providerOptions: ["gemini", "free-trial"],
     isOpenSource: false,
   },
   gemini15Flash: {
@@ -854,7 +887,7 @@ export const models: { [key: string]: ModelPackage } = {
       apiKey: "<API_KEY>",
     },
     icon: "gemini.png",
-    providerOptions: ["gemini"],
+    providerOptions: ["gemini", "askSage"],
     isOpenSource: false,
   },
   gemini20FlashLite: {
@@ -910,7 +943,7 @@ export const models: { [key: string]: ModelPackage } = {
       apiKey: "<API_KEY>",
     },
     icon: "gemini.png",
-    providerOptions: ["gemini"],
+    providerOptions: ["gemini", "askSage"],
     isOpenSource: false,
   },
   commandR: {
@@ -965,7 +998,7 @@ export const models: { [key: string]: ModelPackage } = {
       systemMessage:
         "You are an expert software developer. You give helpful and concise responses.",
     },
-    providerOptions: ["openai", "askSage"],
+    providerOptions: ["openai", "free-trial", "askSage"],
     icon: "openai.png",
     isOpenSource: false,
   },
@@ -993,7 +1026,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 8096,
       title: "GPT-3.5-Turbo",
     },
-    providerOptions: ["openai", "askSage"],
+    providerOptions: ["openai", "free-trial"],
     icon: "openai.png",
     isOpenSource: false,
   },
@@ -1007,7 +1040,7 @@ export const models: { [key: string]: ModelPackage } = {
       title: "Claude 3.5 Sonnet",
       apiKey: "",
     },
-    providerOptions: ["anthropic", "askSage"],
+    providerOptions: ["anthropic", "free-trial", "askSage"],
     icon: "anthropic.png",
     isOpenSource: false,
   },
@@ -1035,7 +1068,7 @@ export const models: { [key: string]: ModelPackage } = {
       title: "Claude 3 Sonnet",
       apiKey: "",
     },
-    providerOptions: ["anthropic", "askSage"],
+    providerOptions: ["anthropic", "free-trial", "askSage"],
     icon: "anthropic.png",
     isOpenSource: false,
   },
@@ -1049,7 +1082,7 @@ export const models: { [key: string]: ModelPackage } = {
       title: "Claude 3.5 Haiku",
       apiKey: "",
     },
-    providerOptions: ["anthropic"],
+    providerOptions: ["anthropic", "free-trial"],
     icon: "anthropic.png",
     isOpenSource: false,
   },
@@ -1233,7 +1266,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 128_000,
       title: "GPT-4 gov",
       systemMessage:
-        "You are an expert software developer. You give helpful and concise responses.", // Need to set this on the Ask Sage side or just configure it in here to be discussed
+        "You are an expert software developer. You give helpful and concise responses.",
     },
     providerOptions: ["askSage"],
     icon: "openai.png",
@@ -1248,21 +1281,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 128_000,
       title: "GPT-4o-gov",
       systemMessage:
-        "You are an expert software developer. You give helpful and concise responses.", // Need to set this on the Ask Sage side or just configure it in here to be discussed
-    },
-    providerOptions: ["askSage"],
-    icon: "openai.png",
-    isOpenSource: false,
-  },
-  asksagegpt35gov: {
-    title: "GPT-3.5-Turbo gov",
-    description: "U.S. Government. Inexpensive and good ROI.",
-    params: {
-      model: "gpt-gov",
-      contextLength: 8096,
-      title: "GPT-3.5-Turbo gov",
-      systemMessage:
-        "You are an expert software developer. You give helpful and concise responses.", // Need to set this on the Ask Sage side or just configure it in here to be discussed
+        "You are an expert software developer. You give helpful and concise responses.",
     },
     providerOptions: ["askSage"],
     icon: "openai.png",
@@ -1277,35 +1296,9 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 128_000,
       title: "GPT-4o-mini gov",
       systemMessage:
-        "You are an expert software developer. You give helpful and concise responses.", // Need to set this on the Ask Sage side or just configure it in here to be discussed
+        "You are an expert software developer. You give helpful and concise responses.",
     },
     providerOptions: ["askSage"],
-    icon: "openai.png",
-    isOpenSource: false,
-  },
-  asksagegpt4: {
-    title: "GPT-4",
-    description:
-      "GPT4 is about 5X more expensive than Ask Sage tokens and 50X more expensive than GPT3.5",
-    params: {
-      model: "gpt4",
-      contextLength: 8_192,
-      title: "GPT-4",
-    },
-    providerOptions: ["openai"],
-    icon: "openai.png",
-    isOpenSource: false,
-  },
-  asksagegpt432: {
-    title: "GPT-4-32k",
-    description:
-      "The GPT-4-32k model is a variant of the GPT-4 model developed by OpenAI. It is designed to handle a larger context window, capable of processing up to 32,768 tokens, which makes it suitable for scenarios that require extensive information integration and data analysis",
-    params: {
-      model: "gpt4-32k",
-      contextLength: 32_768,
-      title: "GPT-4-32k",
-    },
-    providerOptions: ["openai"],
     icon: "openai.png",
     isOpenSource: false,
   },
@@ -1354,6 +1347,106 @@ export const models: { [key: string]: ModelPackage } = {
     icon: "openai.png",
     isOpenSource: false,
   },
+  asksagegpt35: {
+    title: "GPT 3.5",
+    description:
+      "GPT-3.5 is a versatile AI model excelling in reasoning, coding, and conversational tasks. It features a 4,096-token context window",
+    params: {
+      model: "gpt",
+      contextLength: 4096,
+      title: "GPT 3.5",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  asksagegpt35gov: {
+    title: "GPT 3.5 Gov",
+    description:
+      "GPT-3.5 Gov is a versatile AI model excelling in reasoning, coding, and conversational tasks. It features a 16,384-token context window",
+    params: {
+      model: "gpt-gov",
+      contextLength: 16384,
+      title: "GPT 3.5",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  asksagegpt41: {
+    title: "GPT-4.1",
+    description: "Azure OpenAI GPT 4.1 model.",
+    params: {
+      model: "gpt-4.1",
+      contextLength: 1_000_000,
+      title: "gpt-4.1",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  asksagegpt41mini: {
+    title: "GPT-4.1 mini",
+    description: "Azure OpenAI GPT 4.1 mini model.",
+    params: {
+      model: "gpt-4.1-mini",
+      contextLength: 1_000_000,
+      title: "gpt-4.1-mini",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  asksagegpt41nano: {
+    title: "GPT-4.1 nano",
+    description: "Azure OpenAI GPT 4.1 nano model.",
+    params: {
+      model: "gpt-4.1-nano",
+      contextLength: 1_000_000,
+      title: "gpt-4.1-nano",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  asksagegpto3: {
+    title: "GPT-o3",
+    description: "Azure OpenAI GPT o3 model.",
+    params: {
+      model: "gpt-o3",
+      contextLength: 200_000,
+      title: "GPT-o3",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  asksagegpt45: {
+    title: "GPT-4.5 Preview",
+    description: "Latest OpenAI GPT 4.5 preview model.",
+    params: {
+      model: "gpt-4.5-preview",
+      contextLength: 128_000,
+      title: "GPT-4.5 Preview",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
   asksageclaude35gov: {
     title: "Claude 3.5 Sonnet gov",
     description:
@@ -1367,6 +1460,81 @@ export const models: { [key: string]: ModelPackage } = {
     },
     providerOptions: ["askSage"],
     icon: "anthropic.png",
+    isOpenSource: false,
+  },
+  asksageclaude4opus: {
+    title: "Claude 4 Opus",
+    description:
+      "Anthropic's most powerful model, designed for complex, reasoning-heavy tasks like agentic search, coding, and writing.",
+    params: {
+      model: "claude-4-opus",
+      contextLength: 200_000,
+      title: "Claude 4 Opus",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "anthropic.png",
+    isOpenSource: false,
+  },
+  asksageclaude4sonnet: {
+    title: "Claude 4 Sonnet",
+    description:
+      "Anthropic's most powerful model, designed for complex, reasoning-heavy tasks like agentic search, coding, and writing.",
+    params: {
+      model: "claude-4-sonnet",
+      contextLength: 200_000,
+      title: "Claude 4 Sonnet",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "anthropic.png",
+    isOpenSource: false,
+  },
+  asksageclaude2: {
+    title: "Claude 2",
+    description:
+      "Anthropic's model that excels at thoughtful dialogue, content creation, complex reasoning, creativity, and coding.",
+    params: {
+      model: "claude2",
+      contextLength: 100_000,
+      title: "Claude 2",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "anthropic.png",
+    isOpenSource: false,
+  },
+  asksageclaude37sonnet: {
+    title: "Claude 3.7 Sonnet",
+    description:
+      "Anthropic's model it can provide both quick, standard responses and extended, step-by-step reasoning for complex tasks. It's designed to be versatile, excelling in coding, instruction-following, multimodal understanding, and agentic capabilities.",
+    params: {
+      model: "claude-37-sonnet",
+      contextLength: 200_000,
+      title: "Claude 3.7 Sonnet",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "anthropic.png",
+    isOpenSource: false,
+  },
+  asksageamazonbedtitan: {
+    title: "Titan",
+    description:
+      "Excels in applications like text generation, summarization, classification, question answering, and information extraction.",
+    params: {
+      model: "aws-bedrock-titan",
+      contextLength: 100_000,
+      title: "Amazon Bedrock Titan Text",
+      systemMessage:
+        "You are an expert software developer. You give helpful and concise responses.",
+    },
+    providerOptions: ["askSage"],
+    icon: "aws.png",
     isOpenSource: false,
   },
   asksagegroqllama33: {
@@ -1389,7 +1557,33 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 8_192,
     },
     icon: "groq.png",
-    isOpenSource: true,
+    providerOptions: ["askSage"],
+    isOpenSource: false,
+  },
+  asksagellama4Scout: {
+    title: "Llama 4 Scout",
+    description: "Best model provided by Groq. LLAMA 4",
+    params: {
+      title: "Llama 4 Scout",
+      model: "groq-llama4-scout",
+      contextLength: 10_000_000,
+    },
+    icon: "groq.png",
+    providerOptions: ["askSage"],
+    isOpenSource: false,
+  },
+  asksagellama3: {
+    title: "Llama 3 70b",
+    description:
+      "Models demonstrate state-of-the-art performance on various industry benchmarks, particularly excelling in areas like instruction following, reasoning, and code generation",
+    params: {
+      title: "Llama 3 70b",
+      model: "llma3",
+      contextLength: 120_000,
+    },
+    icon: "meta.png",
+    providerOptions: ["askSage"],
+    isOpenSource: false,
   },
   Qwen2Coder: {
     title: "Qwen 2.5 Coder 7b",
